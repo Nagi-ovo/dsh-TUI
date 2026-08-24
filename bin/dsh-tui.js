@@ -152,6 +152,32 @@ const MSG = {
     en: (oldName, newName) => `[dsh-tui] note: env ${oldName} was renamed to ${newName}; the old name no longer takes effect.`,
     zh: (oldName, newName) => `[dsh-tui] 提示：环境变量 ${oldName} 已更名为 ${newName}，旧名不再生效。`,
   },
+  notInstalled: {
+    en: '(not installed)',
+    zh: '（未安装）',
+  },
+  helpText: {
+    en:
+      `Usage: dsh-tui [command] [options] [path|url]\n\n` +
+      `Commands:\n` +
+      `  version                Show launcher and profile versions\n` +
+      `  help                   Show this help\n\n` +
+      `Options:\n` +
+      `  --resume [id]          Resume the last (or the given) session\n` +
+      `  -c, --continue         Same as --resume\n` +
+      `  <path|url>             Open with the given workspace target\n\n` +
+      `Any other argument is forwarded to \`dsh --profile ${PROFILE}\`.`,
+    zh:
+      `用法：dsh-tui [命令] [选项] [路径|URL]\n\n` +
+      `命令：\n` +
+      `  version                显示启动器与 profile 版本\n` +
+      `  help                   显示本帮助\n\n` +
+      `选项：\n` +
+      `  --resume [id]          恢复上次（或指定 id 的）会话\n` +
+      `  -c, --continue         同 --resume\n` +
+      `  <路径|URL>             以指定工作区目标启动\n\n` +
+      `其余参数原样转发给 \`dsh --profile ${PROFILE}\`。`,
+  },
 }
 const msg = key => MSG[key][lang]
 
@@ -173,6 +199,24 @@ const profilePkgDir = join(profileDir, 'node_modules', '@deepseek-harness-tui', 
 const profileBin = join(profilePkgDir, 'bin', 'dsh-tui.js')
 const installedPkgPath = join(profilePkgDir, 'package.json')
 const runningInsideProfile = sameDir(ownDir, profilePkgDir)
+
+// ─── 子命令：version / help ──────────────────────────────────────────────────
+// 只认第一个参数，且在角色分支之前应答：两种角色都不经过委托与自举——
+// `dsh-tui --help` 在没装 dsh、profile 残缺时也必须能出（否则求助命令
+// 本身先触发一轮安装）。后续位置的同名字符串不截获，保持既有透传与
+// 工作区目标嗅探行为不变。
+const subcommand = process.argv[2]
+if (subcommand === 'version' || subcommand === '--version' || subcommand === '-v') {
+  const role = runningInsideProfile ? 'profile' : 'launcher'
+  console.log(`${PACKAGE} ${ownVersion ?? 'unknown'} (${role})`)
+  const profileVersion = readJson(installedPkgPath)?.version
+  console.log(`profile: ${profileVersion ?? msg('notInstalled')}  ${profilePkgDir}`)
+  process.exit(0)
+}
+if (subcommand === 'help' || subcommand === '--help' || subcommand === '-h') {
+  console.log(msg('helpText'))
+  process.exit(0)
+}
 
 const forwardExit = child => {
   child.on('error', err => {
