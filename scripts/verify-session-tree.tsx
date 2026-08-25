@@ -346,8 +346,7 @@ function family() {
   stdin.write('\x1b')
   await settle(() => !text().includes('回退到这里'))
   stdin.write('\x1b[B\x1b[B\x1b[B')
-  // 焦点移动只改高亮样式，translateToString 读不到——无可观测文本条件，
-  // 保留固定 pacing 等按键被处理。
+  // 固定窗:pacing —— 三次向下只改 translateToString 读不到的高亮，须落焦到死分支再确认。
   await sleep(200)
   stdin.write('\r')
   check('screen: 死分支提供切换选项', await settled(() => text().includes('切换到该分支')))

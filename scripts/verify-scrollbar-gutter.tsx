@@ -126,7 +126,7 @@ function gutterSnapshot(): { thumbs: number[]; ticks: number[]; chevrons: number
 const wheel = async (up: boolean, times: number) => {
   for (let i = 0; i < times; i++) {
     stdin.write(`\x1b[<${up ? 64 : 65};90;30M`)
-    await sleep(150)
+    await sleep(150) // 固定窗:pacing —— 滚轮事件须逐个进入 hover/scroll 路径再发下一步。
   }
 }
 const clickAt = (col: number, row: number) => {

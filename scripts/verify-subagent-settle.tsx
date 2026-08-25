@@ -100,9 +100,9 @@ const bump = () => { channel.version++; for (const cb of listeners) (cb as () =>
  *  「settled 后空闲帧数 = 0」是不得发生渲染的稳定性探针，对已成立
  *  条件轮询会立即返回，等于没测。 */
 async function countIdleFrames(windowMs: number): Promise<number> {
-  await sleep(300)
+  await sleep(300) // 固定窗:pacing —— 先吸收状态切换的收尾帧，再建立空闲帧计数基线。
   const before = frameCount
-  await sleep(windowMs)
+  await sleep(windowMs) // 固定窗:探针 —— 在指定空闲窗内计数，completed 场景不得再产生帧。
   return frameCount - before
 }
 
@@ -113,8 +113,7 @@ await render(
   { stdout, stdin, stderr, exitOnCtrlC: false, patchConsole: false, onFrame: () => { frameCount++ } },
 )
 
-// 开机动画（LogoV2 splash）落定后再测——动画时长是墙钟语义，无可轮询的
-// 定格条件，保留固定窗口。
+// 固定窗:墙钟 —— 须跨过 LogoV2 splash 动画时长，避免把开机帧计入 subagent clock。
 await sleep(1800)
 
 // ---- 控制组：2 张 running 卡片 → 空闲窗口内必须有帧 ----
@@ -132,8 +131,7 @@ channelRows.forEach(row => {
   sub.stopReason = 'completed'
 })
 bump()
-// 过渡帧吸收窗：completed 重排的收尾帧无可轮询的完成条件，保留固定窗口
-// （countIdleFrames 自带的 300ms 预滚同理）。
+// 固定窗:pacing —— completed 重排的收尾帧没有完成信号，须先吸收再测空闲帧归零。
 await sleep(300)
 
 const settledFrames = await countIdleFrames(1000)

@@ -122,8 +122,7 @@ const sleep = (ms: number): Promise<void> =>
   const afterProbe = drain(stdout)
   check('active probe re-asserts mouse tracking', afterProbe.includes(ENABLE_MOUSE_TRACKING))
 
-  // Latch, then let the probe throttle window pass: every self-heal path must
-  // stay silent afterwards.
+  // 固定窗:探针 —— shutdown latch 后须跨过 probe throttle 窗，所有自愈路径仍应静默。
   instance.detachForShutdown()
   await sleep(300)
 

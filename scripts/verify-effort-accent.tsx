@@ -103,8 +103,7 @@ render(<Driver />, {
   patchConsole: false,
 })
 
-// 稳定性/时窗探针（切档前不得出现 accent）：条件从挂载起就成立，轮询会
-// 立即返回，等于没测；且必须在 t=300ms 切档前采样——保留固定窗口。
+// 固定窗:墙钟 —— 首次采样必须落在 t=300ms 切档前，确认 accent 尚未出现。
 await sleep(200)
 check('off the top tier: plain prefix, no accent', firstRow().startsWith('❯') && !prefixFgTruecolor() && !prefixBold())
 
@@ -115,12 +114,12 @@ check('off the top tier: plain prefix, no accent', firstRow().startsWith('❯') 
 const luma = (rgb: number): number =>
   0.299 * ((rgb >> 16) & 0xff) + 0.587 * ((rgb >> 8) & 0xff) + 0.114 * (rgb & 0xff)
 const samples: number[] = []
-await sleep(120)
+await sleep(120) // 固定窗:墙钟 —— 延迟到 charge window 尾段再开始采集亮度斜坡。
 for (let i = 0; i < 8; i++) {
   const line = term.buffer.active.getLine(term.buffer.active.baseY)
   const cell = line?.getCell(0)
   if (cell !== undefined && cell.isFgRGB()) samples.push(cell.getFgColor())
-  await sleep(28)
+  await sleep(28) // 固定窗:墙钟 —— 28ms 均匀采样用于验证 accent 亮度单调爬升。
 }
 check('charging onto the top tier: bold + truecolor accent', prefixFgTruecolor() && prefixBold())
 check('charge ramps dark→full (sampled, monotone)',
@@ -129,8 +128,7 @@ check('charge ramps dark→full (sampled, monotone)',
   && samples.slice(1).some((value, index) => luma(value) >= luma(samples[index]!)),
   `${samples.length} samples, luma ${samples.length ? Math.round(luma(samples[0]!)) : '?'}→${samples.length ? Math.round(luma(samples[samples.length - 1]!)) : '?'}`)
 
-// 稳定性探针（accent 必须持续存在）：条件此刻已成立，轮询会立即返回，
-// 测不到「保持」——保留固定窗口。
+// 固定窗:探针 —— charge window 结束后 accent 必须继续保持 truecolor 与 bold。
 await sleep(300)
 check('past the charge window: accent stays solid', prefixFgTruecolor() && prefixBold())
 check('off the top tier again: accent gone', await settled(() => !prefixFgTruecolor() && !prefixBold()))

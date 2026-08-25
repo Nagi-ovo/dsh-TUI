@@ -229,7 +229,7 @@ const panelHeader = (text: string): string =>
   instance.unmount()
   instances.delete(process.stdout)
   harness.term.dispose()
-  // 卸载/dispose 的收尾 pacing：无可观测完成条件，保留固定小窗口。
+  // 固定窗:pacing —— unmount/dispose 收尾没有完成回调。
   await sleep(40)
 }
 
@@ -240,8 +240,7 @@ const panelHeader = (text: string): string =>
     harness,
     makeChannel({ rows: [{ id: 1, kind: 'user', text: '第一条消息' }] }),
   )
-  // 稳定性探针（面板不得出现）：条件从挂载起就成立，轮询会立即返回，
-  // 测不到「不再出现」——保留固定窗口。
+  // 固定窗:探针 —— 非空 transcript 挂载后启动面板不得迟到出现。
   await sleep(500)
 
   const before = harness.screen()

@@ -90,19 +90,17 @@ async function runDriver(): Promise<void> {
   reporter.push(failing)
   reporter.push(failing)
   reporter.push(failing)
-  // 稳定性探针（不得多出通知）：settle 会在第一条通知出现时立即返回，
-  // 测不到「只出一条」的上界——保留固定窗口。
+  // 固定窗:探针 —— 三次同文错误只能产生一条通知，须留窗观察迟到重复通知。
   await sleep(150)
   check('去重：同一行连发 3 次只出一条通知', notices.length === 1)
   check('去重：通知带重复计数（重复 3 次）', notices[0]?.includes('重复 3 次') ?? false)
 
   reporter.push(failing)
-  // 稳定性探针（冷却期内不得出新通知）：条件在 push 前就成立，轮询等于
-  // 没测——保留固定窗口。
+  // 固定窗:探针 —— 冷却期内再次 push 同文错误不得产生第二条通知。
   await sleep(150)
   check('冷却：刚通知过的行在冷却期内静默', notices.length === 1)
 
-  // 纯排序等待：冷却窗口是墙钟时间，没有可观察的状态翻转——保留。
+  // 固定窗:墙钟 —— 须经过 reporter 的 400ms 冷却期，同文错误才允许再次通知。
   await sleep(400)
   reporter.push(failing)
   check('冷却结束：同一行可再次通知', await settled(() => notices.length === 2))
@@ -120,7 +118,7 @@ async function runDriver(): Promise<void> {
   const countBefore = notices.length
   reporter.push('   ')
   reporter.push('')
-  // 稳定性探针（空行不得产生通知）：条件在 push 前就成立——保留固定窗口。
+  // 固定窗:探针 —— 空行与纯空白行不得产生任何迟到通知。
   await sleep(150)
   check('空行/纯空白行被丢弃', notices.length === countBefore)
 

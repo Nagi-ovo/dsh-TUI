@@ -111,8 +111,7 @@ const inst = await render(tree, {
 instances.set(process.stdout, instances.get(stdout)!)
 inst.rerender(tree)
 
-// 首帧挂载 pacing：等 React 树完成首次渲染与鼠标/选取 hook 挂接，
-// 无单一可观测条件。
+// 固定窗:pacing —— React 首帧与鼠标/选取 hook 挂接没有共同的完成信号。
 await sleep(900)
 
 function screenLines(): string[] {
@@ -136,9 +135,9 @@ async function dragOver(marker: string, a: number, b: number): Promise<void> {
   const charIdx = lines[row]!.indexOf(marker)
   const col0 = stringWidth(lines[row]!.slice(0, charIdx))
   stdin.write(`\x1b[<0;${col0 + a + 1};${row + 1}M`)   // press
-  await sleep(80)
+  await sleep(80) // 固定窗:pacing —— press 须先被选区状态机处理，再注入 drag。
   stdin.write(`\x1b[<32;${col0 + b + 1};${row + 1}M`)   // drag (motion)
-  await sleep(80)
+  await sleep(80) // 固定窗:pacing —— drag 须先更新选区端点，再注入 release。
   stdin.write(`\x1b[<0;${col0 + b + 1};${row + 1}m`)    // release
 }
 
@@ -154,10 +153,9 @@ await dragOver(TMARK, 2, 10)
 // ── 回归组：上滚阅读到中部历史 + 尾部流式并发 ──
 for (let i = 0; i < 90 && !screenLines().some(l => l.includes(HMARK)); i++) {
   stdin.write('\x1b[<64;90;20M')  // wheel up，小步走到标记可见
-  await sleep(12)
+  await sleep(12) // 固定窗:pacing —— 连续滚轮事件须逐个进入视口滚动路径。
 }
-// 稳定性窗口（不得改变）：上面的轮询循环已见到 HMARK，settle 会立即返回
-// 等于没测——固定窗口让滚轮连发后的错误重绘（标记被冲掉）有机会暴露。
+// 固定窗:探针 —— HMARK 已出现，须留窗观察滚轮连发后的错误重绘会否把它冲掉。
 await sleep(400)
 {
   const lines = screenLines()
@@ -176,13 +174,13 @@ const streamLoop = (async () => {
     streamRow.text = origText + chunk.repeat(++streamed)
     channel.version++
     listeners.forEach(l => l())
-    await sleep(33)
+    await sleep(33) // 固定窗:墙钟 —— 33ms chunk 节拍构成 2.6s 流式并发场景。
   }
 })()
 
 // 真实墙钟语义：拖选必须落在 2.6s 流式窗口的中段——streamed>0 一到就返回
 // 的轮询表达不了"流式进行中"这个并发时点，保留固定等待。
-await sleep(400)  // 流式已在跑
+await sleep(400) // 固定窗:墙钟 —— 流式已在跑
 try {
   await dragOver(HMARK, 3, 11)
 } catch (e) {
@@ -190,7 +188,7 @@ try {
 }
 await streamLoop
 streamRow.streaming = undefined
-// 流式收尾后的重绘 pacing：无单一可观测条件（下面的 settled 只等 OSC 52）。
+// 固定窗:pacing —— 流式标志清除后的重绘无完成信号，下面的 settled 只等 OSC 52。
 await sleep(400)
 
 {
@@ -201,7 +199,7 @@ await sleep(400)
 
 // ── 附加：流式结束后（静息）再拖一次，看是否恢复 ──
 writes.length = 0
-// 静息 pacing：给上一次选区/复制状态一个收尾窗口，无单一可观测条件。
+// 固定窗:pacing —— 上一次选区与复制状态的收尾没有完成信号。
 await sleep(200)
 try {
   await dragOver(HMARK, 3, 11)

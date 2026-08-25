@@ -74,13 +74,11 @@ const instance = await render(
 
 const write = async (input) => {
   stdin.write(input)
-  await sleep(120)
+  await sleep(120) // 固定窗:pacing —— 假 stdout 丢弃草稿帧，每段输入须先更新内部编辑态。
 }
 
 try {
-  // Startup and typing/arrow ordering keep fixed waits: the fake stdout
-  // discards frames, so there is nothing observable to settle on for them.
-  // Each Enter's effect IS observable through `submitted`, so settle there.
+  // 固定窗:pacing —— 假 stdout 丢弃首帧，无法观察 PromptInput 监听已挂载。
   await sleep(300)
   await write('first')
   stdin.write('\r')

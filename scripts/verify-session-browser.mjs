@@ -253,7 +253,7 @@ const screen = () => {
 async function windowed(action, settleMs = 300) {
   stdout.frames.length = 0
   action()
-  await sleep(settleMs)
+  await sleep(settleMs) // 固定窗:pacing —— action 的增量帧须完整写入后再截取本次窗口输出。
   return toPlain(stdout.frames.join(''))
 }
 

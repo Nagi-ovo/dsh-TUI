@@ -70,11 +70,10 @@ const instance = await render(
   { stdout, stderr, stdin, exitOnCtrlC: false, patchConsole: false },
 )
 
-// 首帧挂载 pacing：等 React 树完成首次渲染与输入监听挂接，无单一可观测条件。
+// 固定窗:pacing —— FakeStdout 丢弃画面，无法观察 React 首帧与输入监听已挂接。
 await sleep(500)
 stdin.write('a\x1b[Db')
-// 批与 Enter 之间的 pacing：编辑态对外不可观测（stdout 被丢弃），只有
-// submit 可断言——保留固定窗口（本文件后续同类 sleep 同理）。
+// 固定窗:pacing —— stdout 被丢弃，须等 a←b 完成内部合成后再发 Enter。
 await sleep(200)
 stdin.write('\r')
 
@@ -88,7 +87,7 @@ check(
 // Two IME commits in one read must compose instead of both reading the empty
 // render closure and leaving only the final character (issue #215).
 stdin.write('\x1b[65;30;20320;1;0;1_\x1b[65;30;22909;1;0;1_')
-await sleep(200)
+await sleep(200) // 固定窗:pacing —— 同批两条 Termy IME commit 须完成合成后再提交。
 stdin.write('\r')
 
 check(
@@ -102,7 +101,7 @@ check(
 // records; each edit must compose before Enter steers the text (issue #219).
 channel.working = true
 stdin.write('\x1b[78;49;110;1;0;1_\x1b[80;25;112;1;0;1_\x1b[77;50;109;1;0;1_')
-await sleep(200)
+await sleep(200) // 固定窗:pacing —— 流式态的三条 Windows 输入记录须合成为 npm 后再 steer。
 stdin.write('\r')
 
 check(
@@ -121,13 +120,13 @@ const multilineCases = [
   ['Shift+Enter', '\x1b[13;2u', 'shift'],
 ]
 for (const [index, [label, newlineKey, prefix]] of multilineCases.entries()) {
-  // 按键间 pacing（同上）：各段必须作为独立 chunk 依次落入编辑态。
+  // 固定窗:pacing —— 第一段须作为独立 chunk 落入编辑态，再注入换行键。
   stdin.write(`${prefix} first`)
   await sleep(100)
   stdin.write(newlineKey)
-  await sleep(100)
+  await sleep(100) // 固定窗:pacing —— 换行键须先改变内部草稿，再输入第二段。
   stdin.write(`${prefix} second`)
-  await sleep(100)
+  await sleep(100) // 固定窗:pacing —— 第二段须完整落入多行草稿，再发提交用 Enter。
   stdin.write('\r')
 
   check(

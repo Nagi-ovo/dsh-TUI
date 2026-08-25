@@ -193,21 +193,20 @@ const bufLen = (tag: string) =>
 const typeKeys = async (keys: string) => {
   for (const ch of keys) {
     stdin.write(ch)
-    await sleep(40)
+    await sleep(40) // 固定窗:pacing —— 字符须逐个进入 slash 补全，避免同批输入越过 key-ready 边界。
   }
 }
 bufLen('boot')
 await typeKeys('/model')
-await sleep(200)
+await sleep(200) // 固定窗:pacing —— /model 补全浮层须先进入 key-ready，随后 Enter 才能打开 picker。
 bufLen('typed /model')
 stdin.write('\r')            // 打开 picker（slash 命令派发）
-await sleep(600)
+await sleep(600) // 固定窗:pacing —— ModelPicker 须完成打开与输入监听切换，再注入向下键。
 bufLen('picker open')
 stdin.write('\x1b[B')        // ↓ 选中下一个模型
-await sleep(200)
+await sleep(200) // 固定窗:pacing —— 向下键只改颜色高亮，须先处理完再确认切换。
 stdin.write('\r')            // 确认 → fork + replay
-// 稳定性探针保留固定窗口：「恰好一份」断言防的是切换后追加帧的多余沉积，
-// 对已成立条件（count===1）轮询立即返回等于没测。
+// 固定窗:探针 —— 切换后须留窗观察追加帧会否让 splash 或历史沉积出第二份。
 await sleep(1500)
 bufLen('switched')
 
@@ -222,13 +221,13 @@ check('历史片段 0-8 恰好一份', countMarker('第 0-8 条历史回答要�
 
 // ---- 再切一次：确认沉积随切换次数线性增长 --------------------------------------
 await typeKeys('/model')
-await sleep(200)
+await sleep(200) // 固定窗:pacing —— 第二次 /model 补全须进入 key-ready 后再发 Enter。
 stdin.write('\r')
-await sleep(600)
+await sleep(600) // 固定窗:pacing —— 第二个 ModelPicker 须完成挂载后再移动焦点。
 stdin.write('\x1b[B')
-await sleep(200)
+await sleep(200) // 固定窗:pacing —— 第二次向下选择须落地后再确认切换。
 stdin.write('\r')
-// 同上：沉积探针保留固定窗口。
+// 固定窗:探针 —— 二次切换后须留窗观察 splash 会否继续追加成多份。
 await sleep(1500)
 check('二次切换后 splash 恰好一份', countMarker(SPLASH) === 1, `实际 ${countMarker(SPLASH)}`)
 
@@ -241,7 +240,7 @@ const waitQuiet = async () => {
   const deadline = Date.now() + 20_000
   let last = rawChunks.length
   while (Date.now() < deadline) {
-    await sleep(600)
+    await sleep(600) // 固定窗:pacing —— 每 600ms 采一轮 rawChunks，连续一轮无增长才算动画静息。
     if (rawChunks.length === last) return
     last = rawChunks.length
   }
@@ -251,12 +250,11 @@ await waitQuiet()
 const modelBeforeEsc = channel.model
 const bufBeforeEsc = term.buffer.active.length
 await typeKeys('/model')
-await sleep(200)
+await sleep(200) // 固定窗:pacing —— Esc 场景的 /model 补全须进入 key-ready 后再发 Enter。
 stdin.write('\r')            // 打开 picker
-await sleep(600)
+await sleep(600) // 固定窗:pacing —— ModelPicker 须完成打开后再注入关闭用 Esc。
 stdin.write('\x1b')          // Esc：只关闭，不切换
-// 稳定性探针保留固定窗口：Esc 不切换/历史仍在/缓冲区零增长都是「状态不得
-// 改变」断言，轮询已成立条件立即返回等于没测。
+// 固定窗:探针 —— Esc 后须留窗观察模型、历史和缓冲区会否发生迟到变化。
 await sleep(600)
 check('Esc 不改动模型', channel.model === modelBeforeEsc, `实际 ${channel.model}`)
 check('Esc 关闭后被覆盖历史行仍在',

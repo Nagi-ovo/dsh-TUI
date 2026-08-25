@@ -119,7 +119,7 @@ function Fixture(): React.ReactNode {
 
 const write = async (input: string): Promise<void> => {
   stdin.write(input)
-  await sleep(180)
+  await sleep(180) // 固定窗:pacing —— 每段输入须先经补全或滚动处理，再注入下一段。
 }
 
 function screenText(): string {
@@ -184,9 +184,7 @@ try {
   check(await settled(() => screenText().includes('/new —')), 'reopening help resets the viewport to the top')
   check(await settled(() => !screenText().includes('PENDING_SENTINEL')), 'reopened help remains visually exclusive')
 
-  // Stability probe across a resize (the hint must REMAIN visible): the
-  // condition is already true before the repaint, so a settle would return
-  // immediately — keep the fixed window for a wrong reflow to surface.
+  // 固定窗:探针 —— resize 后滚动提示必须保持可见，须留窗让错误 reflow 显形。
   stdout.rows = 18
   term.resize(COLS, 18)
   stdout.emit('resize')
@@ -195,8 +193,7 @@ try {
   stdin.write('\x1b[F')
   check(await settled(() => screenText().includes('/q —')), 'resized help can still reach the tail')
 
-  // Ordering sleep kept: the narrow reflow has no single anchored condition
-  // to poll before the next keypress.
+  // 固定窗:pacing —— 60 列窄屏 reflow 没有单一锚点可确认完成，Home 不能抢发。
   stdout.columns = 60
   term.resize(60, 18)
   stdout.emit('resize')
@@ -283,8 +280,7 @@ const chat = await render(
 )
 
 try {
-  // Startup and per-key typing keep fixed sleeps: the prompt echo has no
-  // single stable anchor to poll while the completion menu reshuffles.
+  // 固定窗:pacing —— Chat 启动时 prompt echo 与补全菜单重排没有稳定锚点。
   await sleep(500)
   for (const key of '/help') await write(key)
   stdin.write('\r')

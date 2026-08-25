@@ -155,19 +155,18 @@ function SweepDriver(): React.ReactNode {
 {
   const harness = await makeHarness(6, React.createElement(SweepDriver))
   try {
-    // elapsed 前 150ms：t=300 切档之前采样静止态（时窗探针）。
+    // 固定窗:墙钟 —— t=300ms 切档之前的 150ms 采样点用于捕获静止态。
     await sleep(150)
     const restText = harness.rowText(0)
     check('rest: plain theme border, no letters, one colour',
       restText === '╭' + '─'.repeat(COLS - 2) + '╮' && harness.fgColors(0) <= 1)
     check('rest: exactly three rows — bottom border sits directly under the input row',
       harness.rowText(2) === '╰' + '─'.repeat(COLS - 2) + '╯' && harness.rowText(3) === '')
-    // elapsed ≈ 300: mid-sweep, letters not started (LABEL_START 600).
+    // 固定窗:墙钟 —— elapsed≈300ms 时应处于 sweep 中段且未到 LABEL_START 600。
     await sleep(450)
     check('act 1 sweep: a light band runs left→right on BOTH borders, no letters yet',
       harness.fgColors(0) >= 2 && harness.fgColors(2) >= 2, `${harness.fgColors(0)}/${harness.fgColors(2)} colours`)
-    // elapsed ≈ 950: the tier name shows centered on the input row, and NO
-    // extra row appears — the row under it stays the bottom border.
+    // 固定窗:墙钟 —— elapsed≈950ms 时 tier 名应在输入行居中且不挤出额外行。
     await sleep(650)
     const inputRow = harness.rowText(1)
     const tierLetters = LEVELS[LEVELS.length - 1]!.toUpperCase().split('')
@@ -175,7 +174,7 @@ function SweepDriver(): React.ReactNode {
     check('act 2 label: letters emerged CENTERED while still converging (gap > 1)',
       tierLetters.every(letter => inputRow.includes(letter)) && firstAt >= Math.floor(COLS / 2) - 12,
       `col ${firstAt}: ${inputRow.trim().slice(0, 24)}`)
-    // elapsed ≈ 1450: converge done (600+800), gap locked at 1, pre-fade.
+    // 固定窗:墙钟 —— elapsed≈1450ms 时 converge 已完成、字距锁定为 1 且尚未 fade。
     await sleep(500)
     const settled = harness.rowText(1)
     const spacedName = tierLetters.join(' ')
@@ -191,7 +190,7 @@ function SweepDriver(): React.ReactNode {
       harness.rowText(2) === '╰' + '─'.repeat(COLS - 2) + '╯')
     const labelColors = harness.fgColors(1)
     check('act 2 label: the badge carries the accent family', labelColors >= 1, `${labelColors} colours`)
-    // elapsed ≈ 1700 (past FADE_END 1600): everything gone, border identical to rest.
+    // 固定窗:墙钟 —— elapsed≈1700ms 已越过 FADE_END 1600，badge 与 sweep 应全部消失。
     harness.writes.length = 0
     await sleep(1050)
     const stream = harness.writes.join('')
@@ -209,11 +208,10 @@ function SweepDriver(): React.ReactNode {
 async function runDarkScenario(name: string, node: React.ReactNode) {
   const harness = await makeHarness(6, node)
   try {
-    // 稳定性探针（不得播放任何动画）：覆盖整条时间轴的固定窗口——轮询
-    // 对「什么都没发生」立即返回，等于没测。
+    // 固定窗:探针 —— dark 场景在切档触发点前不得写出任何动画帧。
     await sleep(300)
     harness.writes.length = 0
-    await sleep(1800)
+    await sleep(1800) // 固定窗:探针 —— 覆盖完整 ignition 时间轴，确认 sweep 与字母始终未播放。
     const stream = harness.writes.join('')
     const top = harness.rowText(0)
     const dim = harness.fgColors(0) <= 1 && !/[A-Z]/.test(top.slice(1, -1)) && !/\x1b\[38;2;.*\x1b\[38;2;/.test(stream)

@@ -137,7 +137,7 @@ const bursts: Array<Array<[number, number]>> = [
 for (let b = 0; b < bursts.length; b++) {
   for (const [w, h] of bursts[b]) {
     doResize(w, h)
-    await sleep(8)
+    await sleep(8) // 固定窗:探针 —— resize 后 8ms 的瞬态采样专门捕获空白帧。
     await lastFlushed
     const d = density()
     if (d < 3) {
@@ -145,10 +145,10 @@ for (let b = 0; b < bursts.length; b++) {
       dump('burst#' + b + '-' + w + 'x' + h)
     }
   }
-  await sleep(150)
+  await sleep(150) // 固定窗:探针 —— 每轮 resize burst 后在 150ms 落定点检查内容仍可见。
   await lastFlushed
   assertVisible('burst#' + b + ' 落定')
-  await sleep(500)
+  await sleep(500) // 固定窗:探针 —— 落定后再留 500ms，检查闲置期没有迟到空白重绘。
   await lastFlushed
   assertVisible('burst#' + b + ' 闲置后')
 }

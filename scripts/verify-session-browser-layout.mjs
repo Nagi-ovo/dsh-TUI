@@ -154,8 +154,7 @@ for (const lang of ['zh', 'en']) {
       ),
       { stdout, stderr, stdin, exitOnCtrlC: false, patchConsole: false },
     )
-    // 固定窗口（原因见下方 "Fixed sleeps kept on purpose" 注释）：断言是
-    // 布局不变量，空帧/旧帧上也成立，轮询会立即返回、测不到新帧。
+    // 固定窗:探针 —— 布局不变量在旧帧也成立，须等首个 session list 新帧落地再检查。
     await sleep(620)
 
     const inspect = (label) => {
@@ -189,7 +188,7 @@ for (const lang of ['zh', 'en']) {
     inspect('initial')
     for (const [keys, label] of KEYS) {
       stdin.write(keys)
-      await sleep(150)
+      await sleep(150) // 固定窗:探针 —— 每个导航键后须在新帧重查无换行且 hint 仍为末行。
       inspect(label)
     }
 
@@ -201,13 +200,13 @@ for (const lang of ['zh', 'en']) {
     stdout.columns = wide[0]
     stdout.rows = wide[1]
     stdout.emit('resize')
-    // 固定窗口（同上）：resize 重绘前后不变量都成立，无可轮询的转变条件。
+    // 固定窗:探针 —— resize 前后布局不变量都成立，须等新尺寸重绘后再复查。
     await sleep(260)
     inspect(`resized to ${wide[0]}x${wide[1]}`)
 
     instance.unmount()
     term.dispose()
-    // 卸载收尾 pacing：让 unmount 的异步清理在下一轮挂载前排空。
+    // 固定窗:pacing —— unmount 的异步清理须在下一轮语言/尺寸挂载前排空。
     await sleep(20)
   }
 }

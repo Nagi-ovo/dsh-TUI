@@ -271,12 +271,12 @@ const decisionCtx = { on: subscribe }
   let secondStartedBeforeFirstDone = false
   let secondDone = false
   const disposeFirst = decisionCtx.on('tui/session-switched', async () => {
-    await sleep(120)
+    await sleep(120) // 固定窗:墙钟 —— 首个通知监听器故意占用 120ms，用来检验广播不会串行等待。
     firstDone = true
   })
   const disposeSecond = decisionCtx.on('tui/session-switched', async () => {
     secondStartedBeforeFirstDone = !firstDone
-    await sleep(10)
+    await sleep(10) // 固定窗:墙钟 —— 第二个监听器仅占 10ms，必须在首个 120ms 监听器结束前启动。
     secondDone = true
   })
   await dispatchTuiNotification(ctx, 'tui/session-switched', {
@@ -294,7 +294,7 @@ const instance = await render(
   <Chat channel={channel as never} questionStore={new QuestionStore()} onExit={() => {}} />,
   { stdout, stdin, stderr: new FakeStderr(), exitOnCtrlC: false, patchConsole: false },
 )
-// 首帧挂载 pacing：等 React 树完成首次渲染与输入监听挂接，无单一可观测条件。
+// 固定窗:pacing —— React 首帧与输入监听挂接没有共同的完成信号。
 await sleep(800)
 
 // ── 0. D-7 backstop: NO extensions row is mounted in this battery, yet an
@@ -307,8 +307,7 @@ await sleep(800)
       c.on('tui/input', () => ({ cancel: true }))
     },
   })
-  // 等未授权插件的订阅尝试注册完成：拒绝是静默的，没有可轮询的外部状态，
-  // 不给这段时间订阅根本没发生、探针会空过——保留固定窗口。
+  // 固定窗:pacing —— 未授权订阅被静默拒绝，没有外部状态可确认注册尝试已结束。
   await sleep(150)
   channel.submit('穿透检查')
   check('decision guard (no extensions row): ungranted plugin subscription denied',
@@ -360,7 +359,7 @@ await sleep(800)
   // The listener resolves at ~600ms — deterministically beyond the threshold.
   const disposeSlow = decisionCtx.on('tui/input', async event => {
     if (event.text !== '慢决定') return undefined
-    await sleep(600)
+    await sleep(600) // 固定窗:墙钟 —— 监听器故意越过 400ms parked 指示阈值后才返回 veto。
     return { cancel: true, reason: '慢否决落地' } as const
   })
   channel.submit('慢决定')
@@ -398,7 +397,7 @@ await sleep(800)
 // ── 2d. decision+delivery FIFO: a slow A never lets B overtake ──────────
 {
   const dispose = decisionCtx.on('tui/input', async event => {
-    if (event.text === '慢条甲') await sleep(400)
+    if (event.text === '慢条甲') await sleep(400) // 固定窗:墙钟 —— A 的 400ms 决策延迟用于验证 B 不会越过它交付。
     return undefined
   })
   channel.submit('慢条甲')
@@ -546,8 +545,7 @@ await sleep(800)
 
   // Double-Esc on the empty input opens the picker (3s arming window).
   stdin.write('\x1b')
-  // 两次 Esc 之间的按键 pacing：连写会被终端输入解析吞成转义序列前缀，
-  // 无可观测条件——保留固定窗口。
+  // 固定窗:pacing —— 两次 Esc 连写会被解析成转义序列前缀，首键须先完成武装。
   await sleep(120)
   stdin.write('\x1b')
   const listShown = await settled(() => plainText(stdout.frames.slice(-30)).includes('消息 09'))
@@ -567,7 +565,7 @@ await sleep(800)
 
   // ↓ once moves to the first plugin mode; Enter rewinds with it.
   stdin.write('\x1b[B')
-  // 选中态是颜色高亮，ANSI 洗净后不可观测——按键间保留固定 pacing。
+  // 固定窗:pacing —— 插件 mode 的选中态只改颜色，须先落焦再发 Enter。
   await sleep(150)
   stdin.write('\r')
   check('picked mode id threaded to tui/rewind-done',
@@ -587,23 +585,20 @@ await sleep(800)
   // The section-4 rewind restored the picked message into the input for
   // re-editing: the first Esc clears it, then the double-Esc opens the
   // picker on the now-empty input.
-  // 连续 Esc 间的按键 pacing（清输入 → 武装 → 开列表）：连写会被吞成转义
-  // 序列前缀；第三次 Esc 后开列表的可观测文本「消息 09」也在恢复的输入行里，
-  // 无法区分——保留固定窗口。
+  // 固定窗:pacing —— 第一次 Esc 须先清掉恢复文本，再开始双击武装序列。
   stdin.write('\x1b')
   await sleep(150)
   stdin.write('\x1b')
-  await sleep(120)
+  await sleep(120) // 固定窗:pacing —— 第二次 Esc 须完成武装，再发第三次打开列表。
   stdin.write('\x1b')
-  await sleep(400)
+  await sleep(400) // 固定窗:pacing —— 恢复文本也含“消息 09”，须等 picker 输入监听就绪而不能只轮询文案。
   stdin.write('\r') // Enter on the newest message → veto
   check('tui/rewind-prompt cancel: reason toasted', await settled(() => notified('该消息不可回退')))
   const tail = plainText(stdout.frames.slice(-40))
   check('tui/rewind-prompt cancel: picker still open (list visible)', tail.includes('消息 09'))
   check('tui/rewind-prompt cancel: no delivery side effects', captured.followupTexts.length === forkCountBefore)
   stdin.write('\x1b') // close the picker
-  // 等收起重绘：帧是增量 diff，「列表已不可见」没有稳定的负向可观测条件
-  // ——保留固定窗口。
+  // 固定窗:pacing —— picker 用增量 diff 收起，“列表不可见”没有稳定的负向完成信号。
   await sleep(200)
   disposePrompt()
 }
@@ -680,8 +675,7 @@ await sleep(800)
   const resumed = await channel.resumeTo('s-a1')
   check('compact ABA setup: /resume back to the origin session succeeded', resumed.ok === true)
   release(undefined)
-  // 稳定性探针（陈旧压缩不得复活）：条件在 release 前就成立，轮询会立即
-  // 返回，测不到「没有跑」——保留固定窗口。
+  // 固定窗:探针 —— release 后陈旧 compact 不得在复用的 session id 上迟到复活。
   await sleep(400)
   check('compact ABA: id reuse does NOT revive the stale compaction',
     captured.compactCalls.length === 1, JSON.stringify(captured.compactCalls))
@@ -734,8 +728,7 @@ await sleep(800)
   const switched = await channel.newSession()
   check('enqueue origin setup: /new succeeded while the predecessor parked', switched === true)
   release(undefined)
-  // 稳定性探针（两条都不得投递）：条件在 release 前就成立，轮询会立即
-  // 返回，测不到「没被投递」——保留固定窗口。
+  // 固定窗:探针 —— release 后旧会话的 parked 前项与排队后项都不得迟到投递到新会话。
   await sleep(500)
   check('enqueue-time origin: the parked predecessor is dropped as stale',
     !captured.followupTexts.some(text => text.includes('旧会话首条')),
@@ -780,7 +773,7 @@ await sleep(800)
     switchedKinds.push(event.kind)
   })
   const rewindPromise = channel.rewindTo({ seq: 4, text: '回退恢复文本' } as never, null)
-  // sleep 是超时兜底（挂死检测的墙钟上界），不是等待条件——保留。
+  // 固定窗:墙钟 —— 900ms 是 rewindTo 不得被 summary listener 挂死的超时上界。
   const text = await Promise.race([rewindPromise, sleep(900).then(() => 'TIMEOUT' as const)])
   check('rewind-done decoupled: rewindTo returns the picked text without waiting for the listener',
     text === '回退恢复文本', String(text))
@@ -806,8 +799,7 @@ await sleep(800)
   // The standard single-handler deadline is 1s. The indicator must remain
   // visible until that deadline resolves the never-settling callback; it is
   // not allowed to disappear on the ordinary 4s notification timer first.
-  // 稳定性探针（指示条必须还挂着）：条件此刻已成立，轮询会立即返回，
-  // 测不到「保持」——保留固定窗口。
+  // 固定窗:探针 —— parked 指示条须持续到 1s handler deadline，不能按普通通知计时先消失。
   await sleep(250)
   check('pending indicator: still up while the bounded decision is parked',
     notified('正在等待插件决定（tui/input）'))

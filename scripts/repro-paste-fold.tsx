@@ -108,7 +108,7 @@ const instance = await render(
   </AlternateScreen>,
   { stdout: new FakeStdout(), stdin: stdinObj, stderr: new FakeStderr(), exitOnCtrlC: false, patchConsole: false },
 )
-// 首帧挂载 pacing：等 React 树完成首次渲染与输入监听挂接，无单一可观测条件。
+// 固定窗:pacing —— React 首帧渲染与输入监听挂接没有共同的完成信号。
 await sleep(600)
 
 let failed = 0
@@ -151,8 +151,7 @@ try {
   const cardPos = findText('FOURTH_MARKER')
   if (cardPos) click(cardPos.col + 1, cardPos.row + 1)
   check('card click expands the block for editing', await settled(() => screenHas('EIGHTH_MARKER')))
-  // Stability probe (must NOT change): a settle would return immediately,
-  // so give any wrong repaint a fixed window to show up instead.
+  // 固定窗:探针 —— 鼠标离开后展开态须保持，留窗让错误折叠重绘显形。
   hover(1, 1)
   await sleep(400)
   check('expansion stays after the mouse leaves', screenHas('EIGHTH_MARKER'))
@@ -172,8 +171,7 @@ try {
   // The caret was dragged to the block's end when folding, so the expanded
   // input shows the TAIL window (EIGHTH_MARKER) — and no chip.
   check('chip click expands the block', await settled(() => screenHas('EIGHTH_MARKER') && !screenHas('▸ 12 lines')))
-  // Stability probe (must NOT change): a settle would return immediately —
-  // keep a fixed window for a wrong repaint to surface.
+  // 固定窗:探针 —— chip 展开后移走鼠标仍须保持，留窗让错误重绘显形。
   hover(1, 1)
   await sleep(300)
   check('chip-expanded stays after the mouse leaves', screenHas('EIGHTH_MARKER'))
@@ -234,8 +232,7 @@ try {
   stdinObj.write('\x7f')
   check('Backspace deletes the whole block',
     await settled(() => !screenHas('▸ 12 lines') && !screenHas('fold-line-0')))
-  // Negative probe (nothing may be submitted): a settle has no state change
-  // to wait for — keep a fixed window for a wrong submit to surface.
+  // 固定窗:探针 —— 删除整个 block 后按 Enter 不得提交，须留窗观察错误 submit。
   stdinObj.write('\r')
   await sleep(400)
   check('Enter after block delete submits nothing', submitted === 'sentinel')

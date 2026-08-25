@@ -72,10 +72,7 @@ const instance = await render(<MessageList rows={rows} {...props} />, {
   patchConsole: false,
 })
 
-// Let measurements settle (heights land, base corrects, count stabilizes).
-// Fixed window on purpose: the baseline below is "reports have STOPPED
-// arriving" — polling for the first positive report would capture settledLen
-// too early and misread later settling reports as no-op re-reports.
+// 固定窗:探针 —— 须等高度、base 与计数稳定到 reports 停止增长，再记录 no-op 基线。
 await sleep(500)
 const settledLen = reports.length
 const settledValue = reports[settledLen - 1]
@@ -88,8 +85,7 @@ if (settledLen === 0 || settledValue === undefined || settledValue <= 0) {
 // count changes, so a correct report stays silent.
 for (let i = 0; i < 6; i++) {
   instance.rerender(<MessageList rows={rows} {...props} />)
-  // Stability probe (must NOT change): a wrong re-report needs a fixed window
-  // to show up — settle on the already-true "no new report" would be a no-op.
+  // 固定窗:探针 —— 每次同树 rerender 后不得迟到重复报告相同 unseen count。
   await sleep(60)
 }
 const afterNoop = reports.length
@@ -105,8 +101,7 @@ if (afterNoop !== settledLen) {
 // A real change MUST still report exactly once: append a new row below the fold.
 rows.push({ id: 31, kind: 'assistant', text: 'fresh row\nwith two lines', streaming: false })
 instance.rerender(<MessageList rows={rows} {...props} />)
-// Fixed window on purpose: the assertion is "EXACTLY one new report" —
-// settling on the first report would return before a duplicate could land.
+// 固定窗:探针 —— 追加一行后必须恰好新增一份报告，须留窗捕获迟到 duplicate。
 await sleep(300)
 const finalLen = reports.length
 if (finalLen !== settledLen + 1 || reports[finalLen - 1] === settledValue) {

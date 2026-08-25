@@ -300,10 +300,7 @@ check('无参 /color 打开调色板选择器', await settled(() => screenText()
 check('选择器聚焦当前色（reset 后无当前色 → 首行 red）', await settled(() => /❯[^\n]*● red/u.test(screenText())), screenText().split('\n').find(l => l.includes('●')) ?? '')
 stdin.write('\x1b[B') // ↓：red → orange
 check('方向键移动焦点到 orange', await settled(() => /❯[^\n]*● orange/u.test(screenText()), { timeoutMs: 10000 }))
-// Chat 对模态 Enter 有 80ms 去重（lastModalEnterAtRef，防 \r\n 双事件）：
-// 本 harness 处理快时，打开 picker 的 Enter 与应用 Enter 落在同一窗口内，
-// 第二个 \r 会被吞掉（Esc 不受影响，实测 picker 活着但不应用）。留出
-// 处理时间间隙，与 verify-thinking-display 的 120ms sleep 同一理由。
+// 固定窗:墙钟 —— 两次 Enter 必须跨过 80ms 模态去重窗，否则实测第二个 \r 会被吞掉。
 await sleep(200)
 stdin.write('\r')
 // 生效上屏是强于下方断言的门（屏上可见 ⇒ mock 已记录），并为后续按键

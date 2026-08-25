@@ -153,7 +153,7 @@ async function runLogin(status: unknown) {
       patchConsole: false,
     },
   )
-  // 启动等待保留固定 sleep：假 stdout 丢弃全部帧，没有可轮询的观察点。
+  // 固定窗:pacing —— 假 stdout 丢弃全部首帧，无法观察 Chat 与输入监听已挂载。
   await sleep(500)
   stdin.write('/login\r')
   const reported = await settled(() => channel.localCalls.length === 1)

@@ -96,11 +96,10 @@ const instance = await render(
   }),
   { stdout, stderr, stdin, exitOnCtrlC: false, patchConsole: false },
 )
-// 首帧挂载 pacing：等 React 树完成首次渲染与输入监听挂接，无单一可观测条件。
+// 固定窗:pacing —— FakeStdout 丢弃画面，无法观察 PromptInput 首帧与监听已挂接。
 await sleep(600)
 
-// 按键间 pacing：每步移动/插入后的光标位置对外不可观测（stdout 被丢弃），
-// 只有最终 submit 可断言——步间保留固定窗口。
+// 固定窗:pacing —— stdout 被丢弃，每步光标移动或插入须先更新内部草稿再发下一步。
 const feed = async seq => {
   stdin.write(seq)
   await sleep(250)

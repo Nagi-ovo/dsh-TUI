@@ -95,9 +95,7 @@ const instance = await render(
   </AlternateScreen>,
   { stdout: new FakeStdout(), stdin: stdinObj, stderr: new FakeStderr(), exitOnCtrlC: false, patchConsole: false },
 )
-// Startup wait stays a fixed window: the first assertion is a negative probe
-// (no pill may exist) — settling on an already-true condition would return on
-// a blank screen and test nothing.
+// 固定窗:探针 —— 首个断言要求 pill 不存在，须留窗避免在尚未首绘的空屏上误判。
 await sleep(600)
 
 // SGR mouse: 64=wheel up, 65=wheel down; position inside the scroll area.
@@ -129,7 +127,7 @@ let prev = 8
 let monotonic = true
 for (let step = 0; step < 12; step++) {
   wheel('down', 2)
-  await sleep(300)
+  await sleep(300) // 固定窗:pacing —— 每次向下滚动后须等 pill 计数重绘再采样单调性。
   const t = pillText()
   seen.push(t === '' ? 'gone' : t.match(/(\d+) new/)?.[1] ?? '?')
   const n = t === '' ? 0 : parseInt(t.match(/(\d+) new/)?.[1] ?? '99', 10)

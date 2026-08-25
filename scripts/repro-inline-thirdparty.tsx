@@ -86,8 +86,8 @@ const instance = await render(
   <Chat channel={channel} questionStore={new QuestionStore()} />,
   { stdout: stdoutObj as any, stdin: new FakeStdin() as any, stderr: new FakeStderr() as any, exitOnCtrlC: false, patchConsole: false },
 )
-// 等鲸鱼启动动画播完定格（眨眼→喷水→摆尾后静态不再重绘）——golden 与
-// 自愈后快照相隔约 1 秒，动画未定格会造成时间敏感的假差异。
+// 固定窗:墙钟 —— 须等鲸鱼的眨眼、喷水、摆尾动画播完定格，否则相隔约 1 秒的
+// golden 与自愈快照会产生时间敏感的假差异。
 await sleep(3500)
 
 // 流式短回复并定格（保持帧高 < 视口，隔离"第三方输出"变量）。
@@ -96,13 +96,12 @@ const msg = { id: id++, kind: 'assistant', text: '', streaming: true }
 channel.rows.push(msg); bump()
 for (let i = 0; i < 12; i++) {
   msg.text += `- 概览要点第 ${i + 1} 条：模块划分与构建流程说明\n`
-  bump(); await sleep(80)
+  bump(); await sleep(80) // 固定窗:墙钟 —— 80ms chunk 节拍构成短回复的模拟流式时间线。
 }
 msg.streaming = false
 channel.working = false
 bump()
-// 定格稳定窗：golden 必须取自不再重绘的稳态帧，「内容可见」不等于「不再
-// 重绘」，无可轮询的完成条件——保留固定窗口。
+// 固定窗:pacing —— golden 须取自不再重绘的稳态帧，而内容可见不能证明已定格。
 await sleep(600)
 
 // 对照基准：定格后的干净视口。
@@ -112,12 +111,11 @@ const golden = viewportLines()
 //   打在空闲时的输入框下方——之后没有大重绘来自愈）。
 await writeParsed(term, '\r\n[5764] Error: Non-HTTPS URLs are only allowed for localhost\r\n[35540] Usage: npx tsx proxy.ts <https://server-url>\r\n')
 
-// 之后只有轻微 UI 活动（通知/指标 tick 级别的小 diff）——真实空闲场景。
-// 固定窗口是场景语义：断言污染在轻微活动后仍存留（稳定性探针），不可轮询。
+// 固定窗:探针 —— 注入的第三方污染须在两次通知/指标级轻微重绘后仍存留。
 channel.responseChars += 7; bump()
 await sleep(300)
 channel.responseChars += 7; bump()
-await sleep(500)
+await sleep(500) // 固定窗:探针 —— 第二次轻微重绘后仍须观察污染没有被偶然自愈。
 
 const after = viewportLines()
 // 前置条件：污染必须实际发生（错误行留在视口）——否则场景没搭对，

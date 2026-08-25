@@ -185,9 +185,7 @@ const instance = await render(
 await settle(() => screenText().includes('Explore the uncharted'))
 
 // 1. /settings opens the screen with the section and its seeded values.
-// The 200ms below stays a fixed ordering sleep: the Enter that follows needs
-// the slash-completion overlay to be key-ready, which is not observable as
-// screen content.
+// 固定窗:pacing —— slash 补全浮层的 key-ready 不在屏幕内容中，Enter 不能抢发。
 stdin.write('/settings')
 await sleep(200)
 stdin.write('\r')
@@ -211,20 +209,17 @@ assert(docs['demo-plugin']?.value.enabled === false, 'host document reflects the
 
 // 3. Number field: ↓ focus, Enter edit (the draft seeds from the current
 // value), backspace the old digit away, type, Enter stage, s save.
-// 下面的逐键 200ms 均为编辑器模式切换的 pacing：焦点/编辑态只体现为颜色与
-// 光标，无可观测的纯文本条件，保留固定窗口。
+// 固定窗:pacing —— 向下焦点只改颜色，须处理完再用 Enter 进入数字编辑器。
 stdin.write('\x1b[B') // ↓
 await sleep(200)
 stdin.write('\r')
-await sleep(200)
+await sleep(200) // 固定窗:pacing —— 数字编辑器须先用当前值 3 建好草稿，再发 Backspace。
 stdin.write('\x7f') // backspace the seeded '3'
-await sleep(200)
+await sleep(200) // 固定窗:pacing —— Backspace 须先删掉种子值 3，再输入 10。
 stdin.write('10')
-await sleep(200)
+await sleep(200) // 固定窗:pacing —— 10 须完整进入编辑草稿，再发 Enter 暂存。
 stdin.write('\r')
-// Fixed sleep kept: '10' is already on screen while the edit is open, so a
-// settle on the assertion's condition would return before the Enter is
-// processed — and the next key ('s') would land inside the editor.
+// 固定窗:pacing —— 10 在编辑器里已可见，settle 实测会提前返回并让后续 s 落进编辑器。
 await sleep(200)
 assert(screenText().includes('10'), 'staged number draft renders')
 stdin.write('s')
@@ -237,15 +232,15 @@ assert(secondOps?.[0]?.op === 'set' && secondOps[0].path.join('.') === 'limit' &
 // section's form — clean here — and closed, silently dropping the staged
 // toggle. The fixed behavior: Esc discards EVERY section's staged drafts
 // first (notice), and only a second Esc leaves.
-// 逐键固定 pacing：焦点移动只体现为颜色高亮，无可观测的纯文本条件。
+// 固定窗:pacing —— 向上焦点只改颜色，须先回到 Enabled 再暂存 toggle。
 stdin.write('\x1b[A') // ↑ back to Enabled
 await sleep(200)
 stdin.write('\r') // stage a toggle in demo-plugin (dirty)
-await sleep(200)
+await sleep(200) // 固定窗:pacing —— demo-plugin 的 dirty toggle 须先暂存，再跨 section 移焦。
 stdin.write('\x1b[B') // ↓
-await sleep(150)
+await sleep(150) // 固定窗:pacing —— 第一次向下焦点只改高亮，须处理完再继续下移。
 stdin.write('\x1b[B') // ↓ into other-plugin's Mode field
-await sleep(300)
+await sleep(300) // 固定窗:pacing —— 焦点须落到干净的 other-plugin Mode，再用 Esc 测跨区丢弃。
 stdin.write('\x1b') // Esc: focused section is clean, demo-plugin is dirty
 assert(await settled(() => screenText().includes('Discarded all unsaved edits')), 'Esc discards staged edits across ALL sections')
 assert(await settled(() => screenText().includes('Other settings')), 'screen stays open after the discard')
@@ -256,8 +251,7 @@ assert(mutations.length === 2, 'discard wrote nothing')
 // (unstable host identity re-firing host-keyed effects) shows up as
 // unbounded growth; a settled screen makes no calls at all. The bound is
 // generous — a real loop runs thousands of renders in this window.
-// Stability probe (calls must NOT grow): polling an already-true condition
-// would return immediately and test nothing — keep the fixed window.
+// 固定窗:探针 —— settingsHostCalls 在空闲屏中不得继续增长，须覆盖潜在 effect render loop。
 const quietCalls = settingsHostCalls
 await sleep(600)
 assert(settingsHostCalls - quietCalls < 50, 'idle screen settles (no render loop through the host)')
@@ -310,7 +304,7 @@ const groupInstance = await render(
 )
 assert(await settled(() => groupScreenText().includes('Name') && groupScreenText().includes('Advanced')), 'group root renders ungrouped fields and group entry', groupScreenText())
 assert(!groupScreenText().includes('Endpoint'), 'group root hides grouped fields', groupScreenText())
-// 焦点移动只体现为颜色高亮，无可观测的纯文本条件，保留固定 pacing。
+// 固定窗:pacing —— 从 Name 到 Advanced 的焦点移动只改颜色，须处理完再进入分组。
 groupStdin.write('\x1b[B') // ↓ from Name to Advanced
 await sleep(200)
 groupStdin.write('\r')
@@ -318,24 +312,22 @@ groupStdin.write('\r')
 // transitions, so assert navigation through group-only content and its hint.
 assert(await settled(() => groupScreenText().includes('Endpoint') && groupScreenText().includes('Esc back')), 'Enter opens the group page', groupScreenText())
 assert(!groupScreenText().includes('Name'), 'group page shows only its fields', groupScreenText())
-// 编辑器模式切换与逐键退格的 pacing：编辑态无可观测的纯文本条件，保留固定窗口。
+// 固定窗:pacing —— Endpoint 编辑器须先用 old 建好草稿，再逐键退格。
 groupStdin.write('\r')
 await sleep(150)
 for (let i = 0; i < 3; i++) {
   groupStdin.write('\x7f')
-  await sleep(50)
+  await sleep(50) // 固定窗:pacing —— 三个 Backspace 须逐个消费 old 的字符。
 }
 groupStdin.write('new')
-await sleep(150)
+await sleep(150) // 固定窗:pacing —— new 须完整进入编辑草稿，再发 Enter 暂存。
 groupStdin.write('\r')
-// Fixed sleep kept: 'new' is already on screen inside the open editor, so a
-// settle on the assertion's condition would return before the Enter staged
-// the draft — and the next key would land in the wrong mode.
+// 固定窗:pacing —— new 在编辑器里已可见，settle 实测会提前返回并让下一键落错模式。
 await sleep(300)
 assert(groupScreenText().includes('new'), 'group field draft is staged', groupScreenText())
 groupStdin.write('\x1b')
 assert(await settled(() => groupScreenText().includes('unsaved') && !groupScreenText().includes('Endpoint')), 'Esc returns to root without dropping the staged edit', groupScreenText())
-// 焦点移动只体现为颜色高亮，无可观测的纯文本条件，保留固定 pacing。
+// 固定窗:pacing —— 从 Name 到 Advanced 的焦点移动只改颜色，须处理完再重入分组。
 groupStdin.write('\x1b[B')
 await sleep(200)
 groupStdin.write('\r')
@@ -348,7 +340,7 @@ const groupOps = groupMutation?.ops as { op: string; path: readonly string[]; va
 assert(groupSaved && groupMutation?.ns === 'group-plugin' && groupMutation.expected === 5, 'group save is revision-fenced')
 assert(groupOps?.[0]?.op === 'set' && groupOps[0].path.join('.') === 'advanced.endpoint' && groupOps[0].value === 'new', 'group save keeps the nested field path')
 assert((docs['group-plugin']?.value.advanced as Record<string, unknown> | undefined)?.endpoint === 'new', 'nested group value reaches the host document')
-// 两次 Esc 之间的处理顺序无可观测中间条件（第一次 Esc 不改变可断言的纯文本），保留固定 pacing。
+// 固定窗:pacing —— 第一次 Esc 的中间态不改变纯文本，须处理完再发第二次退出键。
 groupStdin.write('\x1b')
 await sleep(200)
 groupStdin.write('\x1b')
@@ -393,7 +385,7 @@ const smallInstance = await render(
 )
 assert(await settled(() => smallScreenText().includes('Long settings')), 'small terminal opens the screen', smallScreenText())
 assert(await settled(() => smallScreenText().includes('Field 0') && !smallScreenText().includes('Field 15')), 'top of the list renders first', smallScreenText())
-// 逐键 ↓ 的 pacing：中间焦点位置只体现为颜色，无可观测的纯文本条件。
+// 固定窗:pacing —— 15 个向下键须逐项推进只以颜色表示的焦点并驱动列表滚动。
 for (let i = 0; i < 15; i++) {
   smallStdin.write('\x1b[B')
   await sleep(120)
@@ -435,7 +427,7 @@ const groupedSmallInstance = await render(
 assert(await settled(() => groupedSmallScreenText().includes('Advanced fields') && !groupedSmallScreenText().includes('Grouped field 0')), 'short group root hides grouped fields', groupedSmallScreenText())
 groupedSmallStdin.write('\r')
 assert(await settled(() => groupedSmallScreenText().includes('Grouped field 0') && !groupedSmallScreenText().includes('Grouped field 15')), 'short group page starts at its first field', groupedSmallScreenText())
-// 逐键 ↓ 的 pacing：中间焦点位置只体现为颜色，无可观测的纯文本条件。
+// 固定窗:pacing —— 分组页的 15 个向下键须逐项推进颜色焦点并驱动列表滚动。
 for (let i = 0; i < 15; i++) {
   groupedSmallStdin.write('\x1b[B')
   await sleep(120)

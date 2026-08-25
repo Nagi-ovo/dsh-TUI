@@ -86,9 +86,7 @@ assert.ok(
   await settled(() => stdout.output.includes('\x1b]11;?') && stdout.output.includes('\x1b[>0q')),
   'timed out waiting for the OSC 11 / XTVERSION queries to be written',
 )
-// Stability probe (must NOT change): raw mode is already true here and must
-// stay true while the replies are late — a settle on the already-true
-// condition would return immediately, so keep a fixed delay window.
+// 固定窗:探针 —— OSC 11/XTVERSION 回复迟到期间 raw mode 必须持续为 true。
 await sleep(450)
 assert.equal(stdin.isRaw, true, 'late terminal replies must remain protected by raw mode')
 

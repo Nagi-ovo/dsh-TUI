@@ -217,7 +217,7 @@ const instance = await render(
   }),
   { stdout, stderr, stdin, exitOnCtrlC: false, patchConsole: false },
 )
-// 启动等待保留固定 sleep：首帧内容（含随机 tip）没有稳定的轮询锚点。
+// 固定窗:pacing —— 首帧含随机 tip，没有稳定文案可确认 Chat 与键盘监听均已就绪。
 await sleep(700)
 setLang('en')
 

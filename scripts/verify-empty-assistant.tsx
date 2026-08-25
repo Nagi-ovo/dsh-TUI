@@ -130,8 +130,7 @@ channel.emit()
 // 用户空文本行不受影响（kind 限定）：一个空 user 行仍渲染其气泡形状
 rows.push({ id: 5, kind: 'user', text: '' })
 channel.emit()
-// 稳定性探针（界面必须仍存活）：❯ 在 emit 前就在屏上，轮询会立即返回，
-// 测不到「没有崩掉」——保留固定窗口让潜在崩溃有时间显形。
+// 固定窗:探针 —— ❯ 在 emit 前已存在，须留窗让空 user 行触发的潜在崩溃显形。
 await sleep(400)
 check('空 user 行不受 assistant 过滤影响（无崩溃、界面存活）', screenLines().some(l => l.includes('❯')))
 

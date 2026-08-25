@@ -90,14 +90,13 @@ check('1 hide: 无「自定义回答」输入行', await settled(() => !screen()
 check('1 hide: hint 无输入提示', await settled(() => !screen().includes('输入回答') && !screen().includes('输入文字附带回答')))
 check('1 hide: 选项照常渲染', await settled(() => screen().includes('内置 provider') && screen().includes('自定义 API 端点')))
 
-// Tab/可打印字符「应被忽略」是状态不得改变的稳定性探针：轮询已成立条件会
-// 立即返回等于没测，键间保留固定窗口。
+// 固定窗:pacing —— 向下焦点只改颜色，须先落到第二项再注入应被忽略的 Tab。
 stdin.write('\x1b[B') // ↓ → 第二项
 await sleep(100)
 stdin.write('\t')    // Tab 应被忽略（无输入行可跳）
-await sleep(100)
+await sleep(100) // 固定窗:探针 —— 无输入行时 Tab 不得改动选项焦点或提交答案。
 stdin.write('x')     // 可打印字符应被忽略
-await sleep(100)
+await sleep(100) // 固定窗:探针 —— 隐藏自定义输入时字符 x 不得写入或提交答案。
 stdin.write('\r')    // Enter 提交焦点项
 check('1 hide: Enter 只提交 selected，无 custom',
   await settled(() => eq(answer, { selected: ['自定义 API 端点'] })), JSON.stringify(answer))
@@ -126,8 +125,7 @@ await mount({
 }, () => screen().includes('deepseek-chat') && screen().includes('自定义回答'))
 check('3 multi: 输入行保留', await settled(() => screen().includes('自定义回答')))
 stdin.write(' ')      // 勾选第一项
-// 键间固定 pacing：空格勾选没有独有的可观测文本（提交结果由下方 settled
-// 断言兜底），保留小窗口保证勾选先于后续输入被处理。
+// 固定窗:pacing —— 空格勾选没有独有文本信号，须先处理完再输入 extra-model。
 await sleep(100)
 stdin.write('extra-model') // 输入行补充
 await settle(() => screen().includes('extra-model'))

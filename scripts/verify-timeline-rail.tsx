@@ -183,17 +183,17 @@ function topOwningTurn(): number | null {
 const wheel = async (up: boolean, times: number) => {
   for (let i = 0; i < times; i++) {
     stdin.write(`\x1b[<${up ? 64 : 65};90;30M`)
-    await sleep(180)
+    await sleep(180) // 固定窗:pacing —— 滚轮事件须逐个进入 rail/scroll 路径再发下一步。
   }
 }
 const clickAt = async (col: number, row: number) => {
   stdin.write(`\x1b[<0;${col};${row}M`)
   stdin.write(`\x1b[<0;${col};${row}m`)
-  await sleep(400)
+  await sleep(400) // 固定窗:探针 —— click 后须让目标跳转或错误 no-op 充分显形再由调用点断言。
 }
 const hoverAt = async (col: number, row: number) => {
   stdin.write(`\x1b[<35;${col};${row}M`)
-  await sleep(300)
+  await sleep(300) // 固定窗:探针 —— hover 后须跨过 dwell 处理窗，再检查预览卡出现或保持隐藏。
 }
 
 // ── 1. 底部：rail 出现，8 tick，恰一个 ━━，active 顶部锚定 ──
@@ -303,14 +303,13 @@ await wheel(false, 20)
 {
   const snap = railSnapshot()
   let anyCard = false
-  // 8ms 间隔连续扫过全部 tick 行（模拟快速划过）
+  // 固定窗:墙钟 —— 8ms 间隔连续扫过全部 tick，始终短于预览卡 dwell 门槛。
   for (const row of snap.ticks) {
     stdin.write(`\x1b[<35;${COLS};${row + 1}M`)
     await sleep(8)
     if (screenLines().some(l => l.slice(55, 97).includes('╭') || l.slice(55, 97).includes('╮'))) anyCard = true
   }
-  // 稳定性探针保留固定窗口：断言「卡不得出现」——settle 对已成立的
-  // 否定条件会立即返回，等于没给错误弹卡留出现身时间。
+  // 固定窗:探针 —— 快速划过结束后预览卡仍不得迟到出现。
   await sleep(60)
   if (screenLines().some(l => l.slice(55, 97).includes('╭') || l.slice(55, 97).includes('╮'))) anyCard = true
   check('快速划过 tick 全程无预览卡（dwell 门）', !anyCard)
@@ -328,8 +327,7 @@ await wheel(false, 20)
   ;(stdout as any).columns = 59
   stdout.emit('resize')
   term.resize(59, ROWS)
-  // 固定窗口保留：断言是「rail 不存在」的否定条件，resize 回流的瞬态
-  // 屏幕可能提早满足它——settle 会在重绘完成前就返回。
+  // 固定窗:探针 —— 59 列 resize 的瞬态会提前无 rail，须等重绘完成后确认它仍隐藏。
   await sleep(500)
   const hidden = !screenLines().some((_, y) => {
     const two = cellAt(y, 57) + cellAt(y, 58)

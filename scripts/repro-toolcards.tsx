@@ -261,7 +261,7 @@ show('glob', {
 check('Glob paths 逐行列出', await settled(() => rowOf('src/a.ts') >= 0 && rowOf('src/b.ts') >= 0))
 
 app.unmount()
-// unmount 后输出 flush 无可观测条件，保留固定 pacing。
+// 固定窗:pacing —— unmount 收尾写出没有完成回调。
 await sleep(100)
 console.log(results.join('\n'))
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURES`)

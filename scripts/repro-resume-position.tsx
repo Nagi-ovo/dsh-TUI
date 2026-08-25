@@ -185,32 +185,29 @@ for (const [tag, scrollFirst] of [['S2 resume(at-bottom)', false], ['S3 resume(s
   )
   await settle(() => screenLines().join('\n').includes('问题 15'))
   if (scrollFirst) {
-    // 逐事件 pacing：滚轮事件逐个进入 scroll 路径。
+    // 固定窗:pacing —— 12 个滚轮事件须逐个进入 scroll 路径。
     for (let i = 0; i < 12; i++) { stdin.write('\x1b[<64;50;20M'); await sleep(16) }
     check(`${tag}: 前置——上滚后视口离开底部`, await settled(() => !screenLines().join('\n').includes('问题 15')))
   }
   // /resume → 浏览器 → Enter 恢复聚焦会话
-  // 两处保留固定 sleep（排序用途）：紧随的 Enter 依赖补全浮层/浏览器的按键
-  // 就绪状态，这不是屏幕可观察内容——settle 到「历史会话」上屏就发 Enter
-  // 会被尚未就绪的浏览器吞掉（实测卡在浏览器不恢复）。
+  // 固定窗:pacing —— /resume 补全的按键就绪状态不在屏幕上，过早发 Enter 实测会被吞掉。
   stdin.write('/resume')
   await sleep(300)
   stdin.write('\r')
-  await sleep(500)
+  await sleep(500) // 固定窗:pacing —— SessionBrowser 上屏不等于输入监听已就绪，恢复用 Enter 不能抢发。
   check(`${tag}: 浏览器打开`, await settled(() => screenLines().some(l => l.includes('历史会话'))), '')
   stdin.write('\r') // Enter → resumeTo → onClose
-  // 保留固定 sleep：紧随的「滚 1 上 2 下」自愈探针依赖行高测量已静息——
-  // settle 到 TAILMARK 首次上屏就开滚，滚回底部的格数会因高度仍在估算而
-  // 差出容差（实测探针失败）。
+  // 固定窗:pacing —— TAILMARK 首次上屏时行高仍在估算，实测立即开滚会差出容差。
   const t0 = performance.now()
   await sleep(700)
   assertLanded(tag, performance.now() - t0)
-  // 回到底部探针：滚 1 上再 2 下（pill 出现会使视口矮 2 行，等量滚回
+  // 固定窗:pacing —— 滚 1 上后须等 pill 改变视口高度，再执行两次向下自愈。
+  // pill 出现会使视口矮 2 行，等量滚回
   // 必然差 2 行——这是既有 pill 语义；多滚一下代表用户“回到底部”）。
   stdin.write('\x1b[<64;50;20M')
   await sleep(200)
   stdin.write('\x1b[<65;50;20M')
-  await sleep(120)
+  await sleep(120) // 固定窗:pacing —— 第一次向下滚动须先按缩短后的视口结算，再补第二格。
   stdin.write('\x1b[<65;50;20M')
   const healed = await settled(() => screenLines().join('\n').includes('TAILMARK_Q7X'))
   check(`${tag}: 滚离后滚回底部，最新消息可见`, healed)

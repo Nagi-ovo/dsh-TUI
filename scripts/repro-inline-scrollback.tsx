@@ -160,12 +160,12 @@ const instance = await render(
 )
 
 const ticker = setInterval(() => { channel.responseChars += 7; bump() }, 100)
-await sleep(800)
+await sleep(800) // 固定窗:pacing —— ticker 须先产生多轮状态栏重绘再开始现场回合。
 
 // ---- 现场回合：user → Read → reasoning ticker → settle → tool → 长流式回复 ----
 const add = (row: any) => { channel.rows.push({ id: id++, ...row }); bump() }
 add({ kind: 'user', text: '看看这个项目，给个概览' })
-await sleep(120)
+await sleep(120) // 固定窗:pacing —— user 行须先落帧，再追加紧邻的 Read 工具行。
 
 // Real report shape: a completed Read row sits immediately above the live
 // thinking ticker. When the ticker settles from four rows to one, an incorrect
@@ -179,7 +179,7 @@ add({
     startedAt: Date.now() - 80, durationMs: 80,
   },
 })
-await sleep(150)
+await sleep(150) // 固定窗:pacing —— 已完成 Read 行须先落帧，再启动相邻 thinking ticker。
 
 const think1 = { id: id++, kind: 'reasoning', text: '', streaming: true, durationMs: undefined as number | undefined }
 channel.rows.push(think1); bump()
@@ -190,10 +190,10 @@ for (const chunk of [
   '\n对照现有回归',
   '\n然后汇总。',
 ]) {
-  think1.text += chunk; bump(); await sleep(140)
+  think1.text += chunk; bump(); await sleep(140) // 固定窗:pacing —— thinking chunk 须逐帧增长以复现折叠重绘。
 }
 think1.streaming = false; think1.durationMs = 1000; bump()
-await sleep(150)
+await sleep(150) // 固定窗:pacing —— thinking 定格折叠须先落帧，再挂载运行中工具卡。
 
 const tool1 = {
   id: id++, kind: 'tool', text: '',
@@ -204,12 +204,12 @@ const tool1 = {
     status: 'running' as string, resultText: undefined as string | undefined, startedAt: Date.now(), durationMs: undefined as number | undefined,
   },
 }
-channel.rows.push(tool1); bump(); await sleep(400)
+channel.rows.push(tool1); bump(); await sleep(400) // 固定窗:pacing —— 工具卡须以 running 状态单独驻留一段帧窗。
 tool1.tool.status = 'ok'
 tool1.tool.durationMs = 42
 tool1.tool.resultText = Array.from({ length: 20 }, (_, i) => `工具结果行 ${i}`).join('\n')
 channel.activeToolCount = 0
-bump(); await sleep(200)
+bump(); await sleep(200) // 固定窗:pacing —— 工具完成与 20 行结果须先落帧，再开始长回复。
 
 // 长流式回复：9 大节 × 每节 11 条，60 字符一个 chunk（照 issue #39 的量级）。
 const finalMsg = { id: id++, kind: 'assistant', text: '', streaming: true }
@@ -231,18 +231,18 @@ if (acc) doc.push(acc)
 for (const chunk of doc) {
   finalMsg.text += chunk
   bump()
-  await sleep(90)
+  await sleep(90) // 固定窗:pacing —— 60 字符回复 chunk 须逐帧注入以复现长流式滚动。
 }
 finalMsg.streaming = false
 channel.working = false
 channel.status = 'idle'
 bump()
-await sleep(800)
+await sleep(800) // 固定窗:pacing —— 回复定格后须让滚动与输入区重排全部落帧。
 clearInterval(ticker)
-await sleep(300)
+await sleep(300) // 固定窗:pacing —— ticker 清除后须留出无状态栏 tick 的静息基线窗。
 
-// 闲置后在真实 PromptInput 输入短标记：caret 的反色格和 xterm 硬件
-// cursor 必须重合。此时整帧远高于小视口，覆盖 native cursor 的长帧坐标路径。
+// 固定窗:pacing —— 长帧中的 PromptInput 反色 caret 与 xterm 硬件 cursor
+// 须完成重绘后再取证，覆盖 native cursor 的长帧坐标路径。
 stdin.write(INPUT_MARKER)
 await sleep(500)
 

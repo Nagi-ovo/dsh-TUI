@@ -77,24 +77,22 @@ const instance = await render(
   }),
   { stdout, stderr, stdin, exitOnCtrlC: false, patchConsole: false },
 )
-// 首帧挂载 pacing：等 React 树完成首次渲染与输入监听挂接，无单一可观测条件。
+// 固定窗:pacing —— React 首帧与 ApprovalPanel 输入监听挂接没有共同的完成信号。
 await sleep(500)
 
 // Modifier Enters must be inert in the panel (they were inert text tokens
 // before #110; the guard restores that for decision paths).
-// Stability probes (nothing may be decided): a settle would return
-// immediately on the already-true condition — keep fixed windows so a
-// wrong decision has time to surface.
+// 固定窗:探针 —— Option+Enter 不得产生 approval 决策，须留窗让错误决定显形。
 stdin.write('\x1b\r') // Option+Enter (ESC CR) → meta+return
 await sleep(250)
 check('Option+Enter (ESC CR) does not decide', decisions.length === 0, JSON.stringify(decisions))
 
 stdin.write('\x1b[13;5u') // Ctrl+Enter (kitty CSI-u)
-await sleep(250)
+await sleep(250) // 固定窗:探针 —— Ctrl+Enter 的 CSI-u 记录不得产生 approval 决策。
 check('Ctrl+Enter (CSI 13;5u) does not decide', decisions.length === 0, JSON.stringify(decisions))
 
 stdin.write('\x1b[13;2u') // Shift+Enter
-await sleep(250)
+await sleep(250) // 固定窗:探针 —— Shift+Enter 的 CSI-u 记录不得产生 approval 决策。
 check('Shift+Enter (CSI 13;2u) does not decide', decisions.length === 0, JSON.stringify(decisions))
 
 // Plain Enter still confirms the focused row (default 0 = allowed-once).

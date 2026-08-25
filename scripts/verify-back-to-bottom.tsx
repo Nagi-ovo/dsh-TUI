@@ -77,8 +77,7 @@ const inst = await render(
   </AlternateScreen>,
   { stdout: stdout as any, stdin: stdin as any, stderr: stderr as any, exitOnCtrlC: false, patchConsole: false },
 )
-// 启动等待保留固定窗口：首个断言是「钉底无 pill」的稳定性探针，对已成立
-// 条件（空屏也无 pill）轮询立即返回等于没测。
+// 固定窗:探针 —— 首个断言要求钉底无 pill，须留窗避免在尚未首绘的空屏上误判。
 await sleep(700)
 
 function screenLines(): string[] {
@@ -98,7 +97,7 @@ const lastTurnVisible = () => screenLines().some(l => l.includes('问题 8'))
 const wheel = async (up: boolean, times: number) => {
   for (let i = 0; i < times; i++) {
     stdin.write(`\x1b[<${up ? 64 : 65};90;30M`)
-    await sleep(150)
+    await sleep(150) // 固定窗:pacing —— 滚轮事件须逐个进入 hover/scroll 路径再发下一步。
   }
 }
 /** 按键：等待由调用点的 settled 断言承担（「无操作」稳定性探针除外，
@@ -166,8 +165,7 @@ await wheel(true, 8)
 }
 
 // ── 6. 钉底按 End：无操作不崩 ──
-// 稳定性探针：期望状态不变（已在底部），保留固定窗口——轮询已成立条件
-// 会立即返回等于没测。
+// 固定窗:探针 —— 已钉底时 End 不得改变末轮可见性或生成 pill。
 pressKey('end')
 await sleep(400)
 check('钉底按 End 无操作', lastTurnVisible() && pillText() === null)
@@ -191,22 +189,22 @@ await inst.unmount()
     { stdout: stdout as any, stdin: stdin as any, stderr: stderr as any, exitOnCtrlC: false, patchConsole: false },
   )
   await settle(() => screenLines().some(l => l.includes('问题 20')))
-  // 上滚 30 格 → 中部（跳底距离 ≈ 150 行 ≫ 视口）；逐事件 pacing 保留。
+  // 固定窗:pacing —— 30 个滚轮事件须逐个把视口推进约 150 行外的中部。
   for (let i = 0; i < 30; i++) {
     stdin.write('\x1b[<64;90;30M')
     await sleep(60)
   }
-  // 中部位置稳定窗：随后的回底延迟采样以此为起点，无可轮询条件。
+  // 固定窗:pacing —— 回底延迟计时须从中部滚动已静息的基线开始。
   await sleep(300)
   // End 回底 + 采样
   stdin.write('\x1b[F')
   let settledAt = -1
   for (let s = 0; s < 12; s++) {
-    await sleep(50)
+    await sleep(50) // 固定窗:墙钟 —— 以 50ms 固定采样测量 End 回底是否在 600ms 内完成。
     if (screenLines().some(l => l.includes('问题 20'))) { settledAt = (s + 1) * 50; break }
   }
   check('远距 End 回底：末轮可见（≤600ms）', settledAt > 0, `settledAt=${settledAt}ms`)
-  // 回底后的空白带/pill 断言是稳定性探针，取样前保留固定稳定窗。
+  // 固定窗:探针 —— 回底后须留窗观察迟到重绘会否产生空白带或重新显示 pill。
   await sleep(300)
   const lines = screenLines()
   // 空白行统计：转译区（跳过置顶头）连续全空行数 ≤ 6（轮间分隔正常 2-3 行）

@@ -80,9 +80,7 @@ async function mountAt(cols: number) {
         models, focusIndex, currentModel: 'p/m12', onHover: noop,
       }) as never,
     )
-    // 翻页前后屏幕形态没有可区分的观察点（长名的尾部序号被省略号截掉，
-    // 行文本与翻页前一致），对已成立条件轮询会立即返回等于没测；
-    // 保留固定窗口等重绘落盘。
+    // 固定窗:探针 —— 长名尾号被省略后翻页前后文本相同，须等重绘落盘再检查焦点几何。
     await sleep(400)
     const buf = term.buffer.active
     const texts: string[] = []
