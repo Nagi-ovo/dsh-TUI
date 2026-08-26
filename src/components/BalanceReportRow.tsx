@@ -112,29 +112,36 @@ export function BalanceReportRow({
         onMouseLeave={(): void => setHovered(false)}
       >
         <Text dimColor={!hovered}>{refreshing ? t('balance-summary-loading') : summary}</Text>
-        {hovered && (
-          <Box flexDirection="column" marginTop={1}>
-            {detailLines.map((line, index) => (
-              <Text key={index} dimColor wrap="truncate">{line}</Text>
-            ))}
-            {result !== null && (
-              <Box flexDirection="row" marginTop={1}>
-                <Text color="success"> [{result.ok ? t('balance-refresh') : t('balance-retry')}]</Text>
-                <Box onClick={(event: { stopImmediatePropagation(): void }) => {
-                  // 阻止冒泡到外层 Box 的 onRefresh——Ink 的 dispatchClick
-                  // 从最深节点向上触发所有祖先 onClick，仅
-                  // stopImmediatePropagation 能中断；否则关闭会立刻被
-                  // 刷新结果拉回来（外层整行点击 = 重新查询）。
-                  event.stopImmediatePropagation()
-                  onDismiss()
-                }}>
-                  <Text color="warning"> [× {t('balance-close')}]</Text>
+        {/* Reserved detail slot: hover fills it, never grows the Chat footer
+            (StatusLine / Settings rule). Cap height so long currency lists
+            truncate instead of shoving the prompt. */}
+        <Box flexDirection="column" height={6} overflow="hidden" marginTop={1} flexShrink={0}>
+          {hovered ? (
+            <>
+              {detailLines.map((line, index) => (
+                <Text key={index} dimColor wrap="truncate">{line}</Text>
+              ))}
+              {result !== null && (
+                <Box flexDirection="row" height={1} overflow="hidden">
+                  <Text color="success"> [{result.ok ? t('balance-refresh') : t('balance-retry')}]</Text>
+                  <Box onClick={(event: { stopImmediatePropagation(): void }) => {
+                    // 阻止冒泡到外层 Box 的 onRefresh——Ink 的 dispatchClick
+                    // 从最深节点向上触发所有祖先 onClick，仅
+                    // stopImmediatePropagation 能中断；否则关闭会立刻被
+                    // 刷新结果拉回来（外层整行点击 = 重新查询）。
+                    event.stopImmediatePropagation()
+                    onDismiss()
+                  }}>
+                    <Text color="warning"> [× {t('balance-close')}]</Text>
+                  </Box>
                 </Box>
-              </Box>
-            )}
-            <Text dimColor>{t('balance-hint')}</Text>
-          </Box>
-        )}
+              )}
+              <Text dimColor wrap="truncate">{t('balance-hint')}</Text>
+            </>
+          ) : (
+            <Text> </Text>
+          )}
+        </Box>
       </Box>
     </Box>
   )
