@@ -33,7 +33,8 @@ lib/                由 src/ 生成的产物——忽略入库、随 npm 分发�
 ## 命令
 
 ```sh
-pnpm install --frozen-lockfile  # pnpm 11；Node ^22.19 || >=24（CI 用 Node 24）
+git submodule update --init --recursive  # vendor/dsh-std、dsh-auth、dsh-ecosystem-spec
+pnpm install --frozen-lockfile  # pnpm 11；Node ^22.19 || >=24（CI 用 Node 24；.nvmrc / .node-version 钉 24）
 pnpm compile                    # 干净编译 src/ → lib/types/（先删整个 lib/）
 pnpm build                      # compile + 全部构建门禁
 pnpm verify:build               # 构建门禁（边界/契约/patch surface/plugin 系列等），不重复编译

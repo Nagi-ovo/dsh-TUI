@@ -182,12 +182,16 @@ $DSH_HOME/profiles/dsh-tui/cordis.patch.yml
 ## 从源码开发
 
 ```sh
-git clone https://github.com/ccch1mneyyy/dsh-TUI.git
+git clone --recurse-submodules https://github.com/ccch1mneyyy/dsh-TUI.git
 cd dsh-TUI
+# 已有检出若子模块为空，先：git submodule update --init --recursive
 pnpm install --frozen-lockfile
 pnpm build
 pnpm smoke
 ```
+
+仓库根目录的 `.nvmrc` / `.node-version` 钉在 Node 24（与 CI 一致）。需要
+`pnpm` 11。
 
 `pnpm build` 会清理忽略入库的 `lib/`，把 `src/` 编译到 `lib/types/`，再运行
 构建门禁。**Git URL 安装不受支持**（workspace 依赖/子模块/pnpm ≥11 prepare 白名单三重阻断）；发布 workflow
