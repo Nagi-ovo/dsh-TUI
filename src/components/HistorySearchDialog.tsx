@@ -1,10 +1,10 @@
 import React from 'react'
 import { t } from '../i18n.js'
-import { Box, Text, useTerminalSize } from '../ui.js'
+import { Box, useTerminalSize } from '../ui.js'
 import { useTerminalFocus } from '../ink/hooks/use-terminal-focus.js'
 import { Pane } from './design-system/Pane.js'
 import { ListItem } from './design-system/ListItem.js'
-import { HintLine } from './design-system/HintLine.js'
+import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
 import { SearchBox } from './SearchBox.js'
 import { listWindow } from './listWindow.js'
 import { historyEntryId, type HistoryEntry } from '../history.js'
@@ -38,18 +38,17 @@ export function HistorySearchDialog({
   // 审查实证）。
   // 框架行：浮层预留 8 + Pane 2 + 标题 1 + gap 1 + SearchBox 3（圆角边框）
   // + gap 1 + gap 1 + 页脚 1 = 18。
+  const listMaxRows = Math.max(terminalRows - 18, 2)
   const { start, end } = listWindow(
     matches.map(() => 2),
     focusIndex,
-    Math.max(terminalRows - 18, 2),
+    listMaxRows,
     1,
   )
   return (
     <Pane color="permission">
       <Box flexDirection="column" gap={1}>
-        <Text bold color="permission">
-          {t('history-search-title')}
-        </Text>
+        <PickerTitle>{t('history-search-title')}</PickerTitle>
         <SearchBox
           query={query}
           cursorOffset={cursorOffset}
@@ -57,32 +56,34 @@ export function HistorySearchDialog({
           isTerminalFocused={isTerminalFocused}
           placeholder={t('history-search-placeholder')}
         />
-        {matches.length === 0 ? (
-          <Text dimColor>{t('history-search-empty')}</Text>
-        ) : (
-          matches.slice(start, end).map((entry, index) => {
-            const absoluteIndex = start + index
-            return (
-              <ListItem
-                key={historyEntryId(entry, absoluteIndex)}
-                isFocused={absoluteIndex === focusIndex}
-                // The SearchBox owns the native-cursor declaration while this
-                // dialog is open — result rows must not park the cursor on
-                // themselves, or IME preedit lands on a list row.
-                declareCursor={false}
-                description={formatRelativeAge(entry.ts)}
-                showScrollUp={absoluteIndex === start && start > 0}
-                showScrollDown={absoluteIndex === end - 1 && end < matches.length}
-                onClick={onPick ? () => onPick(absoluteIndex) : undefined}
-              >
-                {entry.text}
-              </ListItem>
-            )
-          })
-        )}
-        <Text dimColor italic>
-          <HintLine text={t('hint-history-search')} />
-        </Text>
+        <Box flexDirection="column" height={listMaxRows} overflow="hidden" flexShrink={0}>
+          {matches.length === 0 ? (
+            <ListItem isFocused={false} declareCursor={false} description=" ">
+              {t('history-search-empty')}
+            </ListItem>
+          ) : (
+            matches.slice(start, end).map((entry, index) => {
+              const absoluteIndex = start + index
+              return (
+                <ListItem
+                  key={historyEntryId(entry, absoluteIndex)}
+                  isFocused={absoluteIndex === focusIndex}
+                  // The SearchBox owns the native-cursor declaration while this
+                  // dialog is open — result rows must not park the cursor on
+                  // themselves, or IME preedit lands on a list row.
+                  declareCursor={false}
+                  description={formatRelativeAge(entry.ts)}
+                  showScrollUp={absoluteIndex === start && start > 0}
+                  showScrollDown={absoluteIndex === end - 1 && end < matches.length}
+                  onClick={onPick ? () => onPick(absoluteIndex) : undefined}
+                >
+                  {entry.text}
+                </ListItem>
+              )
+            })
+          )}
+        </Box>
+        <PickerHint text={t('hint-history-search')} />
       </Box>
     </Pane>
   )
