@@ -36,7 +36,7 @@ import { stringWidth } from '../ink/stringWidth.js'
 import { isPlainReturnInput } from '../utils/modifiers.js'
 import { Pane } from './design-system/Pane.js'
 import { ListItem } from './design-system/ListItem.js'
-import { HintLine } from './design-system/HintLine.js'
+import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
 import { listWindow } from './listWindow.js'
 import { INPUT_CELLS, type TuiDialogAnswer, type TuiDialogSnapshot } from '../dsh-adapter/dialogs.js'
 import { capCells, flattenInline } from '../dsh-adapter/sanitize.js'
@@ -113,11 +113,7 @@ function SelectDialog({
   return (
     <Pane color="permission">
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Text color="remember" bold>
-            {dialog.title}
-          </Text>
-        </Box>
+        <PickerTitle>{dialog.title}</PickerTitle>
         {dialog.options.slice(start, end).map((option, index) => {
           const absoluteIndex = start + index
           return (
@@ -135,9 +131,7 @@ function SelectDialog({
           )
         })}
       </Box>
-      <Text dimColor italic>
-        <HintLine text={t('hint-select-exit')} />
-      </Text>
+      <PickerHint text={t('hint-select-exit')} />
     </Pane>
   )
 }
@@ -188,11 +182,9 @@ function ConfirmDialog({
   return (
     <Pane color="permission">
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Text color="remember" bold>
-            {dialog.title}
-          </Text>
-          {dialog.message !== undefined && <Text dimColor>{dialog.message}</Text>}
+        <PickerTitle>{dialog.title}</PickerTitle>
+        <Box height={1} overflow="hidden" marginBottom={1} flexShrink={0}>
+          <Text dimColor wrap="truncate-end">{dialog.message ?? ' '}</Text>
         </Box>
         {labels.map((label, index) => (
           <ListItem
@@ -205,9 +197,7 @@ function ConfirmDialog({
           </ListItem>
         ))}
       </Box>
-      <Text dimColor italic>
-        <HintLine text={t('hint-select-exit')} />
-      </Text>
+      <PickerHint text={t('hint-select-exit')} />
     </Pane>
   )
 }
@@ -303,24 +293,20 @@ function InputDialog({
   return (
     <Pane color="permission">
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Text color="remember" bold>
-            {dialog.title}
+        <PickerTitle>{dialog.title}</PickerTitle>
+        <Box height={1} overflow="hidden" flexShrink={0}>
+          <Text wrap="truncate-end">
+            {/* The caret is the inverted cell under the cursor (CC's block
+                cursor); at end of line it inverts the trailing space. Splits
+                are code-point safe — the caret never lands inside a surrogate
+                pair. */}
+            <Text dimColor={value === ''}>{shownPoints.slice(0, cursor).join('')}</Text>
+            <Text inverse>{shownPoints[cursor] ?? ' '}</Text>
+            <Text>{shownPoints.slice(cursor + 1).join('')}</Text>
           </Text>
         </Box>
-        <Text>
-          {/* The caret is the inverted cell under the cursor (CC's block
-              cursor); at end of line it inverts the trailing space. Splits
-              are code-point safe — the caret never lands inside a surrogate
-              pair. */}
-          <Text dimColor={value === ''}>{shownPoints.slice(0, cursor).join('')}</Text>
-          <Text inverse>{shownPoints[cursor] ?? ' '}</Text>
-          <Text>{shownPoints.slice(cursor + 1).join('')}</Text>
-        </Text>
       </Box>
-      <Text dimColor italic>
-        <HintLine text={t('hint-ext-dialog-input')} />
-      </Text>
+      <PickerHint text={t('hint-ext-dialog-input')} />
     </Pane>
   )
 }

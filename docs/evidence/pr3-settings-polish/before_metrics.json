@@ -1,0 +1,10 @@
+{
+  "source": "pre-polish capture (settings_before_*)",
+  "jitter": {
+    "hintInListRow": true,
+    "titleMovedOnFocus": true,
+    "emptySessionCategory": true,
+    "nonBlankDeltaOnFocus": "+1 typical"
+  },
+  "chromeLineBudget": "unaccounted — hints expanded list rows"
+}

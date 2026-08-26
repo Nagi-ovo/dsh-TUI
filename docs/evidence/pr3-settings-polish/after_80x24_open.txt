@@ -1,0 +1,24 @@
+Settings
+────────────────────────────────────────────────────────────────────────────────
+▸ General    Status bar    Shortcuts
+────────────────────────────────────────────────────────────────────────────────
+❯ Language                                                               English
+  Fullscreen mode                                                            Off
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+Language · UI language for the whole interface — applies immediately and is sav…
+←/→ categories · Enter edit/toggle · s save · d discard · Esc discard/exit

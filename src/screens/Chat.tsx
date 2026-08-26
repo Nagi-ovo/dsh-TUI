@@ -99,6 +99,7 @@ import { readTrajectorySeen, writeTrajectorySeen } from '../trajectoryPrefs.js'
 import type { SessionEvent } from '../dsh-adapter/types.js'
 import { LoadingState } from '../components/design-system/LoadingState.js'
 import { Pane } from '../components/design-system/Pane.js'
+import { PickerTitle } from '../components/design-system/PickerChrome.js'
 import { loadHistory, type HistoryEntry } from '../history.js'
 import { formatLoadedContextReport } from '../utils/loaded-context.js'
 import {
@@ -3696,9 +3697,7 @@ function ModelPickerLoading(): React.ReactNode {
   return (
     <Pane color="permission">
       <Box flexDirection="column" gap={1}>
-        <Text bold color="permission">
-          {t('picker-title-model')}
-        </Text>
+        <PickerTitle>{t('picker-title-model')}</PickerTitle>
         <LoadingState
           message={t('model-loading')}
           bold
