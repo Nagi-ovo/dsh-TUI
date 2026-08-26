@@ -190,8 +190,9 @@ pnpm build
 pnpm smoke
 ```
 
-仓库根目录的 `.nvmrc` / `.node-version` 钉在 Node 24（与 CI 一致）。需要
-`pnpm` 11。
+仓库根目录的 `.nvmrc` / `.node-version` 钉在 Node 24（与 CI 一致）。用
+`pnpm` 11.21.0（`packageManager` 与 `vendor/dsh-std` 一致）；经 corepack 激活
+更高的 11.x 时，`prepare` 里构建 vendored workspace 会因版本钉死而失败。
 
 `pnpm build` 会清理忽略入库的 `lib/`，把 `src/` 编译到 `lib/types/`，再运行
 构建门禁。**Git URL 安装不受支持**（workspace 依赖/子模块/pnpm ≥11 prepare 白名单三重阻断）；发布 workflow
