@@ -286,17 +286,18 @@ export function Settings({
   const focused = focusable.length === 0 ? undefined : focusable[effFocus]
   const focusedForm = activeCategory === undefined ? undefined : forms.get(activeCategory.ns)
 
-  // Only reset focus when the user changes category — not on remount restore.
-  const prevCategoryRef = React.useRef(effCategory)
-  React.useEffect(() => {
-    if (prevCategoryRef.current === effCategory) return
-    prevCategoryRef.current = effCategory
-    setFocusIndex(0)
-    session.listTop = 0
-  }, [effCategory, session])
-
   const lockHover = (): void => {
     hoverLockRef.current = Date.now() + 400
+  }
+
+  /** Change category and reset focus/scroll in the same turn (no one-frame skew). */
+  const goCategory = (next: number): void => {
+    const clamped = Math.max(0, Math.min(categoryCount - 1, next))
+    if (clamped === effCategory) return
+    lockHover()
+    setCategoryIndex(clamped)
+    setFocusIndex(0)
+    session.listTop = 0
   }
 
   const commitSave = (ns: string): void => {
@@ -440,13 +441,11 @@ export function Settings({
     }
 
     if (key.leftArrow && categoryCount > 1) {
-      lockHover()
-      setCategoryIndex(Math.max(0, effCategory - 1))
+      goCategory(effCategory - 1)
       return
     }
     if (key.rightArrow && categoryCount > 1) {
-      lockHover()
-      setCategoryIndex(Math.min(categoryCount - 1, effCategory + 1))
+      goCategory(effCategory + 1)
       return
     }
 
@@ -538,17 +537,16 @@ export function Settings({
   // as focus moves between short and long values (CC /config taste).
   // Always reserve room for the longest badge stack (`invalid` / `user` / `*`)
   // so staging a toggle cannot widen the column and shove every value left.
+  // Committed values only — live edit drafts truncate inside the fixed column
+  // instead of growing it and shoving every label.
   const badgeBudget = stringWidth(`${t('settings-field-invalid')} ${t('settings-badge-override')} * `)
   const valueColWidth = (() => {
     if (activeCategory === undefined || focusedForm === undefined) return 10
     let widest = 4
     for (const field of focusable) {
       const state = focusedForm.field(field)
-      const isEditing = mode === 'edit' && editing !== null && editing.field === field
       const value = displayValue(field, state.text, {
-        editing: isEditing,
-        draft: editing?.draft,
-        cursor: editing?.cursor,
+        editing: false,
         secretConfigured: secrets.get(`${activeCategory.ns}:${field.path.join('.')}`) === true,
       })
       widest = Math.max(widest, badgeBudget + stringWidth(value))
@@ -683,8 +681,7 @@ export function Settings({
                 key={category.id}
                 flexShrink={0}
                 onClick={() => {
-                  lockHover()
-                  setCategoryIndex(index)
+                  goCategory(index)
                 }}
               >
                 <Text
@@ -701,8 +698,7 @@ export function Settings({
             <Box
               flexShrink={0}
               onClick={() => {
-                lockHover()
-                setCategoryIndex(categories.length)
+                goCategory(categories.length)
               }}
             >
               <Text
