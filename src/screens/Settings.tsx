@@ -523,11 +523,15 @@ export function Settings({
     ? pick(focused.hint, focused.hintDescriptions)
     : undefined
   const fieldHintLine = (() => {
-    if (focused === undefined || focusedHint === undefined) return ''
+    if (focused === undefined) return ''
+    const hasMeta = focusedHint !== undefined
+      || focusedState?.overridden === true
+      || focusedState?.invalid === true
+    if (!hasMeta) return ''
     const parts = [pick(focused.label, focused.descriptions)]
     if (focusedState?.overridden === true) parts.push(t('settings-badge-override'))
     if (focusedState?.invalid === true) parts.push(t('settings-field-invalid'))
-    parts.push(focusedHint)
+    if (focusedHint !== undefined) parts.push(focusedHint)
     return parts.join(' · ')
   })()
 

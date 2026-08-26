@@ -20,7 +20,7 @@ process.env.FORCE_COLOR = '3'
 // module import resolves the startup lang (env > persisted > locale).
 process.env.DSH_TUI_LANG = 'en'
 
-const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { Chat }, { QuestionStore }, { ApprovalStore }, commandModule, { settle, settled, sleep, viewportLines }] = await Promise.all([
+const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render, AlternateScreen }, { Chat }, { QuestionStore }, { ApprovalStore }, commandModule, { settle, settled, sleep, viewportLines }] = await Promise.all([
   import('node:stream'),
   import('react'),
   import('@xterm/headless'),
@@ -174,12 +174,13 @@ const channel: any = {
 }
 
 const stdin = new FakeStdin()
-// fullscreen matches the shipped default (cordis.yml `fullscreen: true`):
-// screens then render bare — Chat is already inside the app's alternate
-// screen, and nesting a second one is both wrong (DEC 1049) and, in this
-// headless harness, drops the first painted row.
+// Match plugin.ts: root AlternateScreen + fullscreen Chat. Without the root
+// alt-screen the headless harness scrolls the title into scrollback on open,
+// and title-only updates (e.g. Settings · unsaved) never repaint there.
 const instance = await render(
-  <Chat fullscreen channel={channel} questionStore={new QuestionStore()} approvalStore={new ApprovalStore()} />,
+  <AlternateScreen>
+    <Chat fullscreen channel={channel} questionStore={new QuestionStore()} approvalStore={new ApprovalStore()} />
+  </AlternateScreen>,
   { stdout: new FakeStdout(), stdin, stderr: new FakeStderr(), exitOnCtrlC: false, patchConsole: false },
 )
 await settle(() => screenText().includes('Explore the uncharted'))
@@ -300,7 +301,9 @@ const groupChannel: any = { ...channel, settingsSections: () => [groupSection] }
 const groupStdin = new FakeStdin()
 let groupClosed = false
 const groupInstance = await render(
-  <Settings channel={groupChannel} onClose={() => { groupClosed = true }} />,
+  <AlternateScreen>
+    <Settings channel={groupChannel} onClose={() => { groupClosed = true }} />
+  </AlternateScreen>,
   { stdout: new GroupStdout(), stdin: groupStdin, stderr: new FakeStderr(), exitOnCtrlC: false, patchConsole: false },
 )
 assert(await settled(() => groupScreenText().includes('Name') && groupScreenText().includes('Advanced') && groupScreenText().includes('General')), 'group root renders ungrouped fields and category tabs', groupScreenText())
@@ -375,7 +378,9 @@ const smallChannel: any = { ...channel, settingsSections: () => [longSection] }
 const smallStdin = new FakeStdin()
 let smallClosed = false
 const smallInstance = await render(
-  <Settings channel={smallChannel} onClose={() => { smallClosed = true }} />,
+  <AlternateScreen>
+    <Settings channel={smallChannel} onClose={() => { smallClosed = true }} />
+  </AlternateScreen>,
   { stdout: new SmallStdout(), stdin: smallStdin, stderr: new FakeStderr(), exitOnCtrlC: false, patchConsole: false },
 )
 assert(await settled(() => smallScreenText().includes('Long settings')), 'small terminal opens the screen', smallScreenText())
@@ -419,7 +424,9 @@ const longGroupSection = {
 const groupedSmallChannel: any = { ...channel, settingsSections: () => [longGroupSection] }
 const groupedSmallStdin = new FakeStdin()
 const groupedSmallInstance = await render(
-  <Settings channel={groupedSmallChannel} onClose={() => {}} />,
+  <AlternateScreen>
+    <Settings channel={groupedSmallChannel} onClose={() => {}} />
+  </AlternateScreen>,
   { stdout: new GroupedSmallStdout(), stdin: groupedSmallStdin, stderr: new FakeStderr(), exitOnCtrlC: false, patchConsole: false },
 )
 assert(await settled(() => groupedSmallScreenText().includes('Advanced fields') && !groupedSmallScreenText().includes('Grouped field 0')), 'short group root hides grouped fields', groupedSmallScreenText())
