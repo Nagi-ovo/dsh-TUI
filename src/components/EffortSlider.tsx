@@ -2,7 +2,7 @@ import React from 'react'
 import { t } from '../i18n.js'
 import { Box, Text } from '../ui.js'
 import { Pane } from './design-system/Pane.js'
-import { HintLine } from './design-system/HintLine.js'
+import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
 import type { EffortOption } from '../dsh-adapter/channel.js'
 
 /**
@@ -29,11 +29,7 @@ export function EffortSlider({
   return (
     <Pane color="permission">
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Text color="remember" bold>
-            {t('picker-title-effort')}
-          </Text>
-        </Box>
+        <PickerTitle>{t('picker-title-effort')}</PickerTitle>
         <Box flexDirection="row">
           {options.map((option, index) => (
             <React.Fragment key={option.id}>
@@ -64,9 +60,7 @@ export function EffortSlider({
         <Box height={1} overflow="hidden">
           <Text dimColor wrap="truncate-end">{focused?.description ?? ' '}</Text>
         </Box>
-        <Text dimColor italic>
-          <HintLine text={t('hint-adjust-done')} />
-        </Text>
+        <PickerHint text={t('hint-adjust-done')} />
       </Box>
     </Pane>
   )

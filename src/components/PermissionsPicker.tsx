@@ -3,7 +3,7 @@ import { t } from '../i18n.js'
 import { Box, Text } from '../ui.js'
 import { Pane } from './design-system/Pane.js'
 import { Select } from './Select.js'
-import { HintLine } from './design-system/HintLine.js'
+import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
 
 /**
  * `/permission` sandbox-preset picker. The command itself is registered by
@@ -38,11 +38,7 @@ export function PermissionsPicker({
   return (
     <Pane color="permission">
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Text color="remember" bold>
-            {t('permission-picker-title')}
-          </Text>
-        </Box>
+        <PickerTitle>{t('permission-picker-title')}</PickerTitle>
         <Select
           options={[
             { value: 'read-only', label: t('permission-preset-readonly'), description: t('permission-preset-readonly-desc') },
@@ -53,9 +49,7 @@ export function PermissionsPicker({
           selectedValue={currentMode}
           onPick={onPick ? index => onPick(index) : undefined}
         />
-        <Text dimColor italic>
-          <HintLine text={t('hint-confirm-exit')} />
-        </Text>
+        <PickerHint text={t('hint-confirm-exit')} />
         {/* Reserved footer row (always one line): keeps overlay height stable
             vs Theme/Lang pickers that only have the hint — cwd truncates. */}
         <Box height={1} overflow="hidden">

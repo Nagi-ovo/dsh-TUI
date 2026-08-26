@@ -3,7 +3,7 @@ import { t } from '../i18n.js'
 import { Box, Text } from '../ui.js'
 import { Pane } from './design-system/Pane.js'
 import { Select, type SelectOption } from './Select.js'
-import { HintLine } from './design-system/HintLine.js'
+import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
 import { getTheme, THEME_NAMES, AUTO_THEME_NAME, type Theme } from '../theme.js'
 import { buildTheme, listCustomThemes } from '../customTheme.js'
 import type { Color } from '../ink/styles.js'
@@ -98,11 +98,7 @@ export function ThemePicker({
   return (
     <Pane color="permission">
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Text color="remember" bold>
-            {t('picker-title-theme')}
-          </Text>
-        </Box>
+        <PickerTitle>{t('picker-title-theme')}</PickerTitle>
         <Select
           options={options}
           focusIndex={focusIndex}
@@ -110,9 +106,7 @@ export function ThemePicker({
           visibleOptionCount={6}
           onPick={onPick ? index => onPick(index) : undefined}
         />
-        <Text dimColor italic>
-          <HintLine text={t('hint-confirm-exit')} />
-        </Text>
+        <PickerHint text={t('hint-confirm-exit')} />
       </Box>
     </Pane>
   )

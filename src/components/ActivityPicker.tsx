@@ -1,9 +1,9 @@
 import React from 'react'
 import { t } from '../i18n.js'
-import { Box, Text } from '../ui.js'
+import { Box } from '../ui.js'
 import { Pane } from './design-system/Pane.js'
 import { Select } from './Select.js'
-import { HintLine } from './design-system/HintLine.js'
+import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
 import { FRAME_PRESETS, PRESET_NAMES } from './activityFrames.js'
 
 /**
@@ -27,11 +27,7 @@ export function ActivityPicker({
   return (
     <Pane color="permission">
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Text color="remember" bold>
-            {t('picker-title-activity')}
-          </Text>
-        </Box>
+        <PickerTitle>{t('picker-title-activity')}</PickerTitle>
         <Select
           options={PRESET_NAMES.map(name => ({
             value: name,
@@ -44,9 +40,7 @@ export function ActivityPicker({
           selectedValue={currentPreset}
           onPick={onPick ? index => onPick(index) : undefined}
         />
-        <Text dimColor italic>
-          <HintLine text={t('hint-confirm-exit')} />
-        </Text>
+        <PickerHint text={t('hint-confirm-exit')} />
       </Box>
     </Pane>
   )

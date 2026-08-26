@@ -4,7 +4,7 @@ import { Box, Text, useTerminalSize } from '../ui.js'
 import type { SkillInfo } from '../dsh-adapter/channel.js'
 import { Pane } from './design-system/Pane.js'
 import { ListItem } from './design-system/ListItem.js'
-import { HintLine } from './design-system/HintLine.js'
+import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
 import { LoadingState } from './design-system/LoadingState.js'
 import { listWindow } from './listWindow.js'
 
@@ -59,11 +59,7 @@ export function SkillsPicker({
   return (
     <Pane color="permission">
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Text color="remember" bold>
-            {t('picker-title-skills')}
-          </Text>
-        </Box>
+        <PickerTitle>{t('picker-title-skills')}</PickerTitle>
         {skills.length === 0 ? (
           <Text dimColor>{t('skills-empty')}</Text>
         ) : (
@@ -84,9 +80,7 @@ export function SkillsPicker({
           })
         )}
       </Box>
-      <Text dimColor italic>
-        <HintLine text={t('hint-fill-exit')} />
-      </Text>
+      <PickerHint text={t('hint-fill-exit')} />
     </Pane>
   )
 }
@@ -96,9 +90,7 @@ export function SkillsPickerLoading(): React.ReactNode {
   return (
     <Pane color="permission">
       <Box flexDirection="column" gap={1}>
-        <Text bold color="permission">
-          {t('picker-title-skills')}
-        </Text>
+        <PickerTitle>{t('picker-title-skills')}</PickerTitle>
         <LoadingState
           message={t('skills-loading')}
           bold

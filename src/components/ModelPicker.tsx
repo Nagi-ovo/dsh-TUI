@@ -1,12 +1,12 @@
 import React from 'react'
 import { t } from '../i18n.js'
-import { Box, Text, useTerminalSize } from '../ui.js'
+import { Box, useTerminalSize } from '../ui.js'
 import type { LlmModelInfo } from '../dsh-adapter/types.js'
 import type { ModelGroupRow } from '../modelGroups.js'
 import { RECENTS_GROUP_PROVIDER, RECENTS_LABEL_PLACEHOLDER } from '../modelGroups.js'
 import { Pane } from './design-system/Pane.js'
 import { ListItem } from './design-system/ListItem.js'
-import { HintLine } from './design-system/HintLine.js'
+import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
 import { listWindow } from './listWindow.js'
 
 /**
@@ -71,11 +71,9 @@ export function ModelPicker(props:
   return (
     <Pane color="permission">
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Text color="remember" bold>
-            {inGroups || props.groupLabel === undefined ? t('picker-title-model') : props.groupLabel}
-          </Text>
-        </Box>
+        <PickerTitle>
+          {inGroups || props.groupLabel === undefined ? t('picker-title-model') : props.groupLabel}
+        </PickerTitle>
         {rows.slice(start, end).map((row, index) => {
           const absoluteIndex = start + index
           return inGroups ? (
@@ -109,9 +107,7 @@ export function ModelPicker(props:
           )
         })}
       </Box>
-      <Text dimColor italic>
-        <HintLine text={hint} />
-      </Text>
+      <PickerHint text={hint} />
     </Pane>
   )
 }

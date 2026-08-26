@@ -684,6 +684,7 @@ const dict = {
   'picker-title-activity': { zh: '指示器预设', en: 'Indicator preset' },
   'picker-title-color': { zh: '会话强调色', en: 'Session accent color' },
   'picker-title-effort': { zh: '推理强度', en: 'Reasoning effort' },
+  'picker-title-preset': { zh: 'Agent 预设', en: 'Agent preset' },
   'model-loading': { zh: '正在加载模型', en: 'Loading models' },
   'model-loading-subtitle': { zh: '正在查询 provider…', en: 'Querying the provider…' },
   'model-switching': { zh: '正在切换模型到 {{name}}…', en: 'Switching model to {{name}}…' },
@@ -743,9 +744,8 @@ const dict = {
 
   // ── components/ThinkingToggle.tsx + messages/AssistantThinkingMessage.tsx ──
   'thinking-title': { zh: '思考过程显示', en: 'Thinking display' },
-  'thinking-subtitle': { zh: '只控制思考过程是否显示，不改变模型的思考行为。', en: 'Only controls whether reasoning is shown; it does not change model behavior.' },
   'thinking-enabled': { zh: '显示', en: 'Shown' },
-  'thinking-enabled-desc': { zh: '在对话中显示 DeepSeek 的思考过程', en: "Show DeepSeek's reasoning in the conversation" },
+  'thinking-enabled-desc': { zh: '在对话中显示 DeepSeek 的思考过程（不改变模型行为）', en: "Show DeepSeek's reasoning in the conversation (does not change model behavior)" },
   'thinking-disabled': { zh: '隐藏', en: 'Hidden' },
   'thinking-disabled-desc': { zh: '隐藏思考过程；模型仍会照常思考', en: 'Hide reasoning; the model will still think as usual' },
   'thinking-label': { zh: '思考', en: 'Thinking' },

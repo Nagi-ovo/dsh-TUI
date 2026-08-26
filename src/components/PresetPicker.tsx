@@ -1,9 +1,9 @@
 import React from 'react'
 import { t } from '../i18n.js'
-import { Box, Text } from '../ui.js'
+import { Box } from '../ui.js'
 import { Pane } from './design-system/Pane.js'
 import { Select } from './Select.js'
-import { HintLine } from './design-system/HintLine.js'
+import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
 import type { PresetOption } from '../dsh-adapter/channel.js'
 
 /**
@@ -31,11 +31,7 @@ export function PresetPicker({
   return (
     <Pane color="permission">
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Text color="remember" bold>
-            Agent preset
-          </Text>
-        </Box>
+        <PickerTitle>{t('picker-title-preset')}</PickerTitle>
         <Select
           options={presets.map(preset => ({
             value: preset.id,
@@ -49,9 +45,7 @@ export function PresetPicker({
           selectedValue={currentPreset}
           onPick={onPick ? index => onPick(index) : undefined}
         />
-        <Text dimColor italic>
-          <HintLine text={t('hint-confirm-exit')} />
-        </Text>
+        <PickerHint text={t('hint-confirm-exit')} />
       </Box>
     </Pane>
   )
