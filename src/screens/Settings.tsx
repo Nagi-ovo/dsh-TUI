@@ -532,6 +532,31 @@ export function Settings({
     columns,
   )
 
+  // Right-align values in a shared column so On/Off / labels don't dance
+  // as focus moves between short and long values (CC /config taste).
+  const valueColWidth = (() => {
+    if (activeCategory === undefined || focusedForm === undefined) return 10
+    let widest = 4
+    for (const field of focusable) {
+      const state = focusedForm.field(field)
+      const isEditing = mode === 'edit' && editing !== null && editing.field === field
+      const value = displayValue(field, state.text, {
+        editing: isEditing,
+        draft: editing?.draft,
+        cursor: editing?.cursor,
+        secretConfigured: secrets.get(`${activeCategory.ns}:${field.path.join('.')}`) === true,
+      })
+      const badges: string[] = []
+      if (state.invalid) badges.push(t('settings-field-invalid'))
+      if (state.overridden) badges.push(t('settings-badge-override'))
+      if (focusedForm.isStaged(field) && !isEditing) badges.push('*')
+      const badgeText = badges.length > 0 ? `${badges.join(' ')} ` : ''
+      widest = Math.max(widest, stringWidth(badgeText) + stringWidth(value))
+    }
+    // Leave room for ❯ + label; never let the value column eat the name.
+    return Math.max(8, Math.min(widest, Math.max(8, columns - 24)))
+  })()
+
   const renderFieldRow = (field: TuiSettingsField, absoluteIndex: number): React.ReactNode => {
     if (activeCategory === undefined) return null
     const ns = activeCategory.ns
@@ -572,18 +597,20 @@ export function Settings({
         >
           <Text bold={isFocused || isEditing} wrap="truncate-end">{label}</Text>
           <Box flexGrow={1} />
-          {badges.length > 0 && (
-            <Text color={state.invalid ? 'error' : 'suggestion'} dimColor={!state.invalid}>
-              {badges.join(' ')}{' '}
+          <Box width={valueColWidth} flexShrink={0} height={1} overflow="hidden" justifyContent="flex-end">
+            {badges.length > 0 && (
+              <Text color={state.invalid ? 'error' : 'suggestion'} dimColor={!state.invalid}>
+                {badges.join(' ')}{' '}
+              </Text>
+            )}
+            <Text
+              color={isEditing || isFocused ? 'suggestion' : undefined}
+              dimColor={!isFocused && !isEditing && (state.text === '' || field.kind === 'boolean')}
+              wrap="truncate-end"
+            >
+              {value}
             </Text>
-          )}
-          <Text
-            color={isEditing || isFocused ? 'suggestion' : undefined}
-            dimColor={!isFocused && !isEditing && (state.text === '' || field.kind === 'boolean')}
-            wrap="truncate-end"
-          >
-            {value}
-          </Text>
+          </Box>
         </Box>
       </ListItem>
     )

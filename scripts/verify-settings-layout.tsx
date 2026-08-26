@@ -119,6 +119,15 @@ check('category tabs present', /General/.test(open.plain) && /Status bar/.test(o
 check('no empty Session door', !/^\s*Session\s*$/m.test(open.plain.split('\n').slice(0, 8).join('\n')))
 check('boolean shows Off not false', /\bOff\b/.test(open.plain) && !/\bfalse\b/.test(open.plain))
 check('select shows English label', /English/.test(open.plain))
+check('value column right-aligned', (() => {
+  const ends = open.plain.split('\n')
+    .map(line => {
+      const m = line.match(/^(.*?)\s+(English|Off|On)\s*$/)
+      return m ? m[0].replace(/\s+$/u, '').length : -1
+    })
+    .filter(n => n > 0)
+  return ends.length >= 2 && new Set(ends).size === 1
+})(), 'value end columns should match')
 
 stdin.write('\x1b[B') // focus Fullscreen
 await sleep(200)
