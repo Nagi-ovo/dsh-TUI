@@ -589,8 +589,6 @@ const dict = {
   'settings-field-customized': { zh: '已自定义', en: 'customized' },
   'settings-field-empty': { zh: '（未设置）', en: '(unset)' },
   'settings-field-invalid': { zh: '无效输入', en: 'invalid' },
-  'settings-on': { zh: '开', en: 'On' },
-  'settings-off': { zh: '关', en: 'Off' },
   'settings-secret-set': { zh: '●●●●●●（已配置）', en: '●●●●●● (configured)' },
   'settings-secret-unset': { zh: '（未配置）', en: '(not configured)' },
   'settings-secret-staged': { zh: '（待保存）', en: '(pending save)' },
