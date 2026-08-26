@@ -235,7 +235,6 @@ export function PlanReviewPanel({
             <Box
               key={option.label}
               flexDirection="row"
-              marginTop={focused ? 1 : 0}
               onClick={() => clickOption(index)}
               onMouseEnter={() => setHoverIndex(index)}
               onMouseLeave={() => setHoverIndex(current => (current === index ? -1 : current))}

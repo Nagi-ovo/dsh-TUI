@@ -45,6 +45,7 @@ const GROUPS = {
     ["verify-settings-layout", ['node', '--import', 'tsx/esm', 'scripts/verify-settings-layout.tsx']],
     ["verify-settings-remount", ['node', '--import', 'tsx/esm', 'scripts/verify-settings-remount.tsx']],
     ["verify-effort-slider-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-effort-slider-stable.tsx']],
+    ["verify-approval-focus-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-approval-focus-stable.tsx']],
     ["repro-inline-scrollback", ['node', '--import', 'tsx/esm', 'scripts/repro-inline-scrollback.tsx']],
     ["repro-inline-thirdparty", ['node', '--import', 'tsx/esm', 'scripts/repro-inline-thirdparty.tsx']],
 // 全屏 resize 空白回归：宽度变化清空行高缓存 → scrollHeight 估算塌缩，
