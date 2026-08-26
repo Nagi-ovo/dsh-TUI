@@ -492,7 +492,7 @@ const retryLineBefore = lineOf('Retry limit')
 stableStdin.write('\x1b[B')
 await sleep(200)
 assert(lineOf('Mode') === modeLineBefore && lineOf('Retry limit') === retryLineBefore, 'rows never reflow when focus moves', stableScreenText())
-assert(stableLines()[retryLineBefore]?.trimEnd().endsWith('3 │') === true, 'hinted row keeps its value flush right while focused', stableScreenText())
+assert(stableLines()[retryLineBefore]?.trimEnd().endsWith('3') === true, 'hinted row keeps its value flush right while focused', stableScreenText())
 // The hint may be truncated on a narrow terminal, but it renders on the left
 // of the bottom help bar with the navigation keys pinned to the right.
 assert(stableScreenText().includes('Attempts befor') && stableScreenText().includes('Enter open/edit/toggle'), 'field hint renders in the bottom help bar', stableScreenText())
@@ -500,9 +500,9 @@ assert(stableScreenText().includes('Attempts befor') && stableScreenText().inclu
 // select renders the option's label as a ‹ chip › flush against the border.
 stableStdin.write('\x1b[B')
 await sleep(200)
-assert(stableLines()[lineOf('Mode')]?.includes('Fast') === true && stableLines()[lineOf('Mode')]?.trimEnd().endsWith('› │') === true, 'select chip shows the option label flush right while focused', stableScreenText())
+assert(stableLines()[lineOf('Mode')]?.includes('Fast') === true && stableLines()[lineOf('Mode')]?.trimEnd().endsWith('›') === true, 'select chip shows the option label flush right while focused', stableScreenText())
 assert(!stableScreenText().includes('Attempts before giving up'), 'hint leaves the help bar when its field loses focus', stableScreenText())
-assert(stableLines()[retryLineBefore]?.trimEnd().endsWith('3 │') === true, 'a focused row above does not shift the rows below', stableScreenText())
+assert(stableLines()[retryLineBefore]?.trimEnd().endsWith('3') === true, 'a focused row above does not shift the rows below', stableScreenText())
 // Toggle a boolean: the chip flips in place (value column never moves) and
 // the change auto-saves — the toast confirms and the flipped chip persists.
 stableStdin.write('\x1b[A')

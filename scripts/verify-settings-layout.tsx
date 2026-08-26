@@ -1,7 +1,7 @@
 /**
- * Settings chrome stability gate (upstream #575 card UI + auto-save):
+ * Settings chrome stability gate (upstream #575 auto-save, flat section headers):
  * title / notice slot / help bar must not jump on focus changes; field hints
- * live in the bottom bar, not the scroll list.
+ * live in the bottom bar, not the scroll list; no box-drawing card cage.
  *
  * Env (`DSH_TUI_LANG`) must be pinned BEFORE any `src/` import — ESM hoists
  * static imports above top-level assignments, so this file uses dynamic import.
@@ -53,9 +53,10 @@ async function main(): Promise<void> {
     const titleY = view.findIndex(l => /^Plugin settings(\s|$|›)/.test(l))
     const helpY = view.findIndex(l => /auto-saves|confirm & save/i.test(l) && /Esc/.test(l))
     const noticeY = view.findIndex((l, y) => y > titleY && y < helpY && (l.trim() === '' || /Saved|✓|✗/.test(l)))
-    const cardTop = view.findIndex(l => /╭/.test(l))
+    const sectionHeader = view.findIndex(l => /─.*dsh-tui|dsh-tui.*─/.test(l))
+    const cardCage = view.some(l => /[╭╮╰╯│]/.test(l))
     const longHintInList = view.some((l, y) => y > titleY && y < helpY - 2 && /vim\/less|native scrollback/.test(l))
-    return { titleY, helpY, noticeY, cardTop, longHintInList, plain: view.join('\n') }
+    return { titleY, helpY, noticeY, sectionHeader, cardCage, longHintInList, plain: view.join('\n') }
   }
 
   let writes = 0
@@ -157,7 +158,8 @@ async function main(): Promise<void> {
   await sleep(150)
   const before = chrome()
   check('title present', before.titleY === 0, `titleY=${before.titleY}`)
-  check('card chrome', before.cardTop >= 0, `cardTop=${before.cardTop}`)
+  check('section header', before.sectionHeader >= 0, `sectionHeader=${before.sectionHeader}`)
+  check('no box-drawing card cage', !before.cardCage)
   check('english select chip', /\bEnglish\b/.test(before.plain))
   check('boolean toggle chip', /\[\s*\]/.test(before.plain))
   check('help bar present', before.helpY === ROWS - 1, `helpY=${before.helpY}`)

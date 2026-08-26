@@ -67,7 +67,7 @@ function padTo(glyph: string, cols: number): string {
  * One editable field row. Always exactly one line tall — the value column
  * stays flush right (badges attach to its left), and the field's hint lives
  * in the bottom help bar instead of a second row, so moving the focus never
- * reflows the list. 行高亮背景由外层 CardRow 负责，本组件只管文字与 chip。
+ * reflows the list. Row highlight background is applied by RowShell.
  */
 function FieldRow({
   label,
@@ -159,102 +159,68 @@ function GroupRow({
   )
 }
 
-/** 区块卡片的边框色（沿用输入框的 panel 边框 token）。 */
-const CARD_BORDER: keyof Theme = 'promptBorder'
-
-/**
- * 区块卡片的顶边：`╭─ 标题 (副标题) ────── [徽章] ╮`。
- *
- * 标题用区块主题色加粗、徽章保留各自的语义色（未保存/重启/失败），其余
- * 边框线用卡片边框色。宽度按 stringWidth 精确计算（CJK 标题占 2 格），
- * 极窄终端依次退化：先丢副标题、再丢徽章、最后截断标题。
- */
-function CardTop({
+/** Quiet section header — a Divider title line, badges pinned to the right. */
+function SectionHeader({
   title,
   subtitle,
   badges,
   columns,
-  color = CARD_BORDER,
 }: {
   title: string
   subtitle?: string
   badges: readonly { text: string; color: keyof Theme }[]
   columns: number
-  color?: keyof Theme
 }): React.ReactNode {
-  const subtitleText = subtitle === undefined ? '' : ` (${subtitle})`
-  let showSubtitle = subtitleText !== ''
+  const label = subtitle === undefined ? title : `${title} (${subtitle})`
+  const badgeParts = badges.map(badge => `[${badge.text}]`)
+  const badgeWidth = badgeParts.reduce((sum, part) => sum + stringWidth(part), 0)
+    + Math.max(0, badgeParts.length - 1)
+  const labelWidth = stringWidth(label)
+  const titleSlot = Math.max(0, columns - badgeWidth - (badges.length > 0 ? 1 : 0))
   let showBadges = badges.length > 0
-  let titleText = title
-  const badgesWidth = badges.reduce((sum, badge) => sum + stringWidth(`[${badge.text}]`), 0) + Math.max(0, badges.length - 1)
-  // 布局：'╭─ ' + 标题 + 副标题 + ' ' + 虚线 + [' ' + 徽章 + ' '] + '╮'
-  const used = (titleWidth: number, withSubtitle: boolean, withBadges: boolean): number =>
-    5 + titleWidth + (withSubtitle ? stringWidth(subtitleText) : 0) + (withBadges ? 2 + badgesWidth : 0)
-  if (used(stringWidth(titleText), showSubtitle, showBadges) + 1 > columns && showSubtitle) showSubtitle = false
-  if (used(stringWidth(titleText), showSubtitle, showBadges) + 1 > columns && showBadges) showBadges = false
-  if (used(stringWidth(titleText), showSubtitle, showBadges) + 1 > columns) {
-    titleText = truncateWidth(titleText, Math.max(4, columns - 6 - (showSubtitle ? stringWidth(subtitleText) : 0) - (showBadges ? 2 + badgesWidth : 0)))
+  let labelText = label
+  if (labelWidth + 4 > titleSlot) {
+    labelText = truncateWidth(label, Math.max(4, titleSlot - 4))
   }
-  const dashes = Math.max(0, columns - used(stringWidth(titleText), showSubtitle, showBadges))
+  if (showBadges && labelWidth + badgeWidth + 2 > columns) showBadges = false
   return (
     <Box flexDirection="row" height={1} flexShrink={0} overflow="hidden">
-      <Text color={color}>{'╭─ '}</Text>
-      <Text bold color="permission">{titleText}</Text>
-      {showSubtitle && <Text dimColor>{subtitleText}</Text>}
-      <Text color={color}>{` ${'─'.repeat(dashes)}`}</Text>
+      <Divider title={` ${labelText} `} width={showBadges ? titleSlot : columns} />
       {showBadges && (
         <>
-          <Text color={color}>{' '}</Text>
+          <Box flexGrow={1} />
           {badges.map((badge, index) => (
             <React.Fragment key={index}>
-              {index > 0 && <Text color={color}>{' '}</Text>}
-              <Text color={badge.color}>{`[${badge.text}]`}</Text>
+              {index > 0 && <Text>{' '}</Text>}
+              <Text color={badge.color}>{badgeParts[index]}</Text>
             </React.Fragment>
           ))}
-          <Text color={color}>{' '}</Text>
         </>
       )}
-      <Text color={color}>{'╮'}</Text>
     </Box>
   )
 }
 
-/** 区块卡片的底边：`╰──────╯`。 */
-function CardBottom({ columns, color = CARD_BORDER }: { columns: number; color?: keyof Theme }): React.ReactNode {
-  return (
-    <Text color={color} wrap="truncate-end">
-      {`╰${'─'.repeat(Math.max(0, columns - 2))}╯`}
-    </Text>
-  )
-}
-
-/**
- * 卡片内一行：`│` 左右边框 + 内容区。聚焦行的高亮背景涂在内容区上
- * （padding 也在背景内），边框线本身不吃高亮——高亮条正好嵌在两道
- * 竖线之间。行内容恒 1 行，与窗口化滚动逐行兼容（SuggestionCard 同族）。
- */
-function CardRow({
+/** One list row shell — focused-row highlight without box-drawing borders. */
+function RowShell({
   children,
   highlight,
-  color = CARD_BORDER,
 }: {
   children: React.ReactNode
   highlight?: boolean
-  color?: keyof Theme
 }): React.ReactNode {
   return (
-    <Box flexDirection="row" height={1} flexShrink={0} overflow="hidden">
-      <Text color={color}>│</Text>
-      <Box
-        flexDirection="column"
-        flexGrow={1}
-        minWidth={0}
-        paddingX={1}
-        backgroundColor={highlight === true ? 'selectionBg' : undefined}
-      >
+    <Box
+      flexDirection="row"
+      height={1}
+      flexShrink={0}
+      overflow="hidden"
+      paddingX={1}
+      backgroundColor={highlight === true ? 'selectionBg' : undefined}
+    >
+      <Box flexDirection="column" flexGrow={1} minWidth={0}>
         {children}
       </Box>
-      <Text color={color}>│</Text>
     </Box>
   )
 }
@@ -576,12 +542,11 @@ export function Settings({
 
   // ── Layout: a flat entry list with accounted line heights, windowed so the
   // focused row is always on screen no matter how long the current page gets.
-  // Each section renders as a bordered card (╭─ title ─╮ / │ rows │ / ╰──╯);
-  // borders are their own entries so windowing can cut a long card anywhere. ─
+  // Each section opens with a quiet Divider header; rows are plain list lines. ─
   const entries: RenderEntry[] = []
   let focusCursor = 0
 
-  /** Badges for a section's form, rendered on the card's top border. */
+  /** Badges for a section's form, rendered beside the section header. */
   const sectionBadges = (section: TuiSettingsSection): { text: string; color: keyof Theme }[] => {
     const form = forms.get(section.ns)
     const view = form?.namespace
@@ -605,17 +570,17 @@ export function Settings({
       key: `field:${section.ns}:${field.path.join('.')}`,
       lines: 1,
       focus: index,
-      node: <CardRow highlight={isFocused}>{renderField(section, field, index)}</CardRow>,
+      node: <RowShell highlight={isFocused}>{renderField(section, field, index)}</RowShell>,
     })
   }
 
   if (activeSection !== undefined && activeGroupSpec !== undefined) {
     const groupFields = activeSection.fields.filter(field => field.group === activeGroupSpec.id)
     entries.push({
-      key: 'card:group:top',
+      key: 'section:group',
       lines: 1,
       node: (
-        <CardTop
+        <SectionHeader
           title={pick(activeGroupSpec.title, activeGroupSpec.descriptions)}
           subtitle={pick(activeSection.title, activeSection.descriptions)}
           badges={sectionBadges(activeSection)}
@@ -625,17 +590,16 @@ export function Settings({
     })
     for (const field of groupFields) addField(activeSection, field)
     if (groupFields.length === 0) {
-      entries.push({ key: 'group:empty', lines: 1, node: <CardRow><Text dimColor>{t('settings-group-empty')}</Text></CardRow> })
+      entries.push({ key: 'group:empty', lines: 1, node: <RowShell><Text dimColor>{t('settings-group-empty')}</Text></RowShell> })
     }
-    entries.push({ key: 'card:group:bottom', lines: 1, node: <CardBottom columns={columns} /> })
   } else {
     sections.forEach((section, sectionIndex) => {
       if (sectionIndex > 0) entries.push({ key: `gap:${section.ns}`, lines: 1, node: <Text> </Text> })
       entries.push({
-        key: `card:${section.ns}:top`,
+        key: `section:${section.ns}`,
         lines: 1,
         node: (
-          <CardTop
+          <SectionHeader
             title={pick(section.title, section.descriptions)}
             subtitle={section.ns}
             badges={sectionBadges(section)}
@@ -667,18 +631,17 @@ export function Settings({
           lines: 1,
           focus: index,
           node: (
-            <CardRow highlight={isFocused}>
+            <RowShell highlight={isFocused}>
               <GroupRow
                 title={pick(group.title, group.descriptions)}
                 focused={isFocused}
                 onClick={groupRowEvents?.onClick}
                 onMouseEnter={groupRowEvents?.onMouseEnter}
               />
-            </CardRow>
+            </RowShell>
           ),
         })
       }
-      entries.push({ key: `card:${section.ns}:bottom`, lines: 1, node: <CardBottom columns={columns} /> })
     })
 
     // Namespaces without a plugin-declared section are deliberately NOT
@@ -755,7 +718,7 @@ export function Settings({
 
   return (
     <Box flexDirection="column" width={columns} height={rows}>
-      <Box>
+      <Box flexShrink={0}>
         <Text bold>{t('settings-title')}</Text>
         {inGroup && (
           <>
@@ -780,12 +743,15 @@ export function Settings({
           <React.Fragment key={entry.key}>{entry.node}</React.Fragment>
         ))}
       </ink-box>
-      <Box flexGrow={1} />
-      <Divider />
-      <Text color={notice?.tone === 'error' ? 'error' : 'success'}>
-        {notice === undefined ? ' ' : `${notice.tone === 'error' ? MULTIPLICATION_X : TICK} ${notice.text}`}
-      </Text>
-      <Box>
+      <Box flexShrink={0}>
+        <Divider />
+      </Box>
+      <Box flexShrink={0}>
+        <Text color={notice?.tone === 'error' ? 'error' : 'success'}>
+          {notice === undefined ? ' ' : `${notice.tone === 'error' ? MULTIPLICATION_X : TICK} ${notice.text}`}
+        </Text>
+      </Box>
+      <Box flexShrink={0}>
         <Text dimColor italic>{hintText}</Text>
         <Box flexGrow={1} />
         <Text dimColor italic>

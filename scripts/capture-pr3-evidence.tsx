@@ -22,10 +22,11 @@ type Size = { cols: number; rows: number; tag: string }
 function chromePins(view: string[], rows: number) {
   const titleY = view.findIndex(l => /^Plugin settings(\s|$|›)/.test(l))
   const helpY = view.findIndex(l => /auto-saves|Esc exit/i.test(l))
-  const cardTop = view.findIndex(l => /╭/.test(l))
+  const sectionHeader = view.findIndex(l => /─.*dsh-tui|dsh-tui.*─/.test(l))
+  const cardCage = view.some(l => /[╭╮╰╯│]/.test(l))
   const nonBlank = view.filter(l => l.trim().length > 0).length
   const hintInListWell = view.slice(0, helpY === -1 ? rows : helpY - 1).some(l => /vim\/less|native scrollback/.test(l))
-  return { titleY, helpY, cardTop, nonBlank, hintInListWell, ok: titleY === 0 && helpY === rows - 1 && cardTop >= 0 && !hintInListWell }
+  return { titleY, helpY, sectionHeader, cardCage, nonBlank, hintInListWell, ok: titleY === 0 && helpY === rows - 1 && sectionHeader >= 0 && !cardCage && !hintInListWell }
 }
 
 async function captureAfter(size: Size): Promise<Record<string, unknown>> {
@@ -148,7 +149,7 @@ async function captureAfter(size: Size): Promise<Record<string, unknown>> {
     chromeLineBudget: {
       titleY: shots.open!.titleY,
       helpY: shots.open!.helpY,
-      cardTop: shots.open!.cardTop,
+      sectionHeader: shots.open!.sectionHeader,
       mandatoryLines: 4,
       listHeight: size.rows - 4 - 1,
     },
