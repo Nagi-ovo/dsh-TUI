@@ -56,6 +56,7 @@ const GROUPS = {
     ["verify-picker-loading-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-picker-loading-stable.tsx']],
     ["verify-picker-hover-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-picker-hover-stable.tsx']],
     ["verify-help-menu-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-help-menu-stable.tsx']],
+    ["verify-theme-picker-slots", ['node', '--import', 'tsx/esm', 'scripts/verify-theme-picker-slots.tsx']],
     ["repro-inline-scrollback", ['node', '--import', 'tsx/esm', 'scripts/repro-inline-scrollback.tsx']],
     ["repro-inline-thirdparty", ['node', '--import', 'tsx/esm', 'scripts/repro-inline-thirdparty.tsx']],
 // 全屏 resize 空白回归：宽度变化清空行高缓存 → scrollHeight 估算塌缩，

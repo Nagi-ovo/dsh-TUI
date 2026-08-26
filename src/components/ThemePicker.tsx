@@ -1,6 +1,6 @@
 import React from 'react'
 import { t } from '../i18n.js'
-import { Box, Text } from '../ui.js'
+import { Box, Text, useTerminalSize } from '../ui.js'
 import { Pane } from './design-system/Pane.js'
 import { Select, type SelectOption } from './Select.js'
 import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
@@ -95,17 +95,25 @@ export function ThemePicker({
   onPick?: (index: number) => void
 }): React.ReactNode {
   const options = React.useMemo(() => getThemeOptions(), [])
+  const { rows: terminalRows } = useTerminalSize()
+  // Same chrome budget as ModelPicker/SkillsPicker: every option has a
+  // description row → 2 screen lines per item; cap the window so a short
+  // inline terminal never pushes Enter/Esc off-screen.
+  const listSlots = Math.max(terminalRows - 14, 2)
+  const visibleOptionCount = Math.max(1, Math.floor(listSlots / 2))
   return (
     <Pane color="permission">
       <Box flexDirection="column">
         <PickerTitle>{t('picker-title-theme')}</PickerTitle>
-        <Select
-          options={options}
-          focusIndex={focusIndex}
-          selectedValue={currentTheme}
-          visibleOptionCount={6}
-          onPick={onPick ? index => onPick(index) : undefined}
-        />
+        <Box flexDirection="column" minHeight={listSlots} flexShrink={0}>
+          <Select
+            options={options}
+            focusIndex={focusIndex}
+            selectedValue={currentTheme}
+            visibleOptionCount={visibleOptionCount}
+            onPick={onPick ? index => onPick(index) : undefined}
+          />
+        </Box>
       </Box>
       <PickerHint text={t('hint-confirm-exit')} />
     </Pane>

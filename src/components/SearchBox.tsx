@@ -17,7 +17,7 @@ import { stringWidth } from '../ink/stringWidth.js'
  * a mid-surrogate offset would split an emoji, so it snaps back to the
  * pair's start first.
  */
-function windowQuery(
+export function windowQuery(
   query: string,
   offset: number,
   avail: number,

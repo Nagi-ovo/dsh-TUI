@@ -40,6 +40,7 @@ import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
 import { listWindow } from './listWindow.js'
 import { INPUT_CELLS, type TuiDialogAnswer, type TuiDialogSnapshot } from '../dsh-adapter/dialogs.js'
 import { capCells, flattenInline } from '../dsh-adapter/sanitize.js'
+import { windowQuery } from './SearchBox.js'
 
 export type ExtensionDialogProps = {
   /** The pending dialog (TuiDialogStore snapshot; `key` remounts per dialog). */
@@ -289,20 +290,21 @@ function InputDialog({
   }, { isActive: true })
 
   const shown = value === '' && dialog.placeholder !== undefined ? dialog.placeholder : value
-  const shownPoints = [...shown]
+  const { columns } = useTerminalSize()
+  const avail = Math.max(8, columns - 6)
+  const caretOffset = [...shown].slice(0, cursor).join('').length
+  const win = windowQuery(shown, caretOffset, avail)
   return (
     <Pane color="permission">
       <Box flexDirection="column">
         <PickerTitle>{dialog.title}</PickerTitle>
         <Box height={1} overflow="hidden" flexShrink={0}>
-          <Text wrap="truncate-end">
-            {/* The caret is the inverted cell under the cursor (CC's block
-                cursor); at end of line it inverts the trailing space. Splits
-                are code-point safe — the caret never lands inside a surrogate
-                pair. */}
-            <Text dimColor={value === ''}>{shownPoints.slice(0, cursor).join('')}</Text>
-            <Text inverse>{shownPoints[cursor] ?? ' '}</Text>
-            <Text>{shownPoints.slice(cursor + 1).join('')}</Text>
+          <Text dimColor={value === ''}>
+            {/* Window around the caret (SearchBox contract): long values
+                stay one line and the inverted cell stays visible. */}
+            {win.before}
+            <Text inverse>{win.at}</Text>
+            {win.after}
           </Text>
         </Box>
       </Box>

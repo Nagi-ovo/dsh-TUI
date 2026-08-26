@@ -90,6 +90,38 @@ async function main(): Promise<void> {
   check('hint Y stable empty message slot', a.hintY === c.hintY, `${a.hintY}→${c.hintY}`)
 
   await app.unmount()
+
+  // Input dialog: caret windowing keeps the prefix visible at end-of-line.
+  const inputTerm = new XTerm({ cols: COLS, rows: ROWS, scrollback: 0, allowProposedApi: true })
+  class InputStdout extends Writable {
+    columns = COLS
+    rows = ROWS
+    isTTY = true
+    _write(chunk: unknown, _e: BufferEncoding, cb: () => void) { inputTerm.write(String(chunk), cb) }
+  }
+  const long = 'plugin-name-' + 'x'.repeat(COLS)
+  const inputApp = await render(
+    React.createElement(ExtensionDialog, {
+      dialog: {
+        key: 'in1',
+        kind: 'input',
+        title: 'Rename plugin',
+        initial: long,
+        placeholder: 'name',
+      },
+      onDecide: () => {},
+      onCancel: () => {},
+    }),
+    { stdout: new InputStdout() as any, stdin: new FakeStdin() as any, stderr: new FakeStderr() as any, exitOnCtrlC: false, patchConsole: false },
+  )
+  await sleep(120)
+  const inputLines = viewportLines(inputTerm, ROWS).join('\n')
+  const valueLine = inputLines.split('\n').find(l => /x{4,}/.test(l)) ?? ''
+  check('input dialog shows windowed tail at caret', /x{6,}/.test(valueLine), valueLine.slice(0, 60))
+  check('input dialog hint present', /Enter|Esc/i.test(inputLines))
+  await inputApp.unmount()
+  inputTerm.dispose()
+
   term.dispose()
   if (failed > 0) process.exit(1)
   console.log('verify-ext-dialog-chrome-stable: all checks passed')
