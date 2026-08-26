@@ -4,7 +4,7 @@ import { t } from '../i18n.js'
 import type { TuiWorkspaceChoice } from '../workspaces.js'
 import { Pane } from './design-system/Pane.js'
 import { ListItem } from './design-system/ListItem.js'
-import { HintLine } from './design-system/HintLine.js'
+import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
 
 const WINDOW = 8
 
@@ -36,9 +36,7 @@ export function WorkspaceFlowPicker({
   return (
     <Pane color="permission">
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Text color="remember" bold>{title}</Text>
-        </Box>
+        <PickerTitle>{title}</PickerTitle>
         {visible.map((choice, index) => (
           <ListItem
             key={choice.id}
@@ -75,8 +73,7 @@ export function WorkspaceFlowPicker({
           </Box>
         )}
       </Box>
-      <Text dimColor italic>
-        <HintLine text={
+      <PickerHint text={
           busy
             ? t('workspace-flow-loading')
             : input !== null
@@ -85,7 +82,6 @@ export function WorkspaceFlowPicker({
                 ? t('workspace-flow-edit-hint')
                 : t('workspace-flow-hint')
         } />
-      </Text>
     </Pane>
   )
 }

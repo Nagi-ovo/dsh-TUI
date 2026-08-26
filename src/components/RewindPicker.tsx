@@ -5,7 +5,7 @@ import type { ChatRow } from '../dsh-adapter/channel.js'
 import type { TuiRewindMode } from '../dsh-adapter/extension-events.js'
 import { Pane } from './design-system/Pane.js'
 import { ListItem } from './design-system/ListItem.js'
-import { HintLine } from './design-system/HintLine.js'
+import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
 import { listWindow } from './listWindow.js'
 
 /**
@@ -74,11 +74,9 @@ export function RewindPicker({
       return (
         <Pane color="permission">
           <Box flexDirection="column">
-            <Box marginBottom={1}>
-              <Text color="remember" bold>
-                {t('rewind-confirm-title')}
-              </Text>
-              <Text dimColor>{preview(confirmRow.text)}</Text>
+            <PickerTitle>{t('rewind-confirm-title')}</PickerTitle>
+            <Box height={1} overflow="hidden" marginBottom={1}>
+              <Text dimColor wrap="truncate-end">{preview(confirmRow.text)}</Text>
             </Box>
             {options.slice(start, end).map((option, index) => {
               const absoluteIndex = start + index
@@ -96,26 +94,18 @@ export function RewindPicker({
               )
             })}
           </Box>
-          <Text dimColor italic>
-            <HintLine text={t('hint-select-exit')} />
-          </Text>
+          <PickerHint text={t('hint-select-exit')} />
         </Pane>
       )
     }
     return (
       <Pane color="permission">
         <Box flexDirection="column">
-          <Box marginBottom={1}>
-            <Text color="remember" bold>
-              {t('rewind-confirm-title')}
-            </Text>
-          </Box>
+          <PickerTitle>{t('rewind-confirm-title')}</PickerTitle>
           <ListItem isFocused={false} description={t('rewind-confirm-desc')} onClick={onConfirm}>
             {preview(confirmRow.text)}
           </ListItem>
-          <Text dimColor italic>
-            <HintLine text={t('hint-rewind-back')} />
-          </Text>
+          <PickerHint text={t('hint-rewind-back')} />
         </Box>
       </Pane>
     )
@@ -133,11 +123,9 @@ export function RewindPicker({
   return (
     <Pane color="permission">
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Text color="remember" bold>
-            {t('rewind-title')}
-          </Text>
-          <Text dimColor>{t('rewind-subtitle')}</Text>
+        <PickerTitle>{t('rewind-title')}</PickerTitle>
+        <Box height={1} overflow="hidden" marginBottom={1}>
+          <Text dimColor wrap="truncate-end">{t('rewind-subtitle')}</Text>
         </Box>
         {rows.length === 0 ? (
           <ListItem isFocused={false}>{t('rewind-empty')}</ListItem>
@@ -166,9 +154,7 @@ export function RewindPicker({
           {busy ? <Text dimColor>{t('rewind-waiting-plugins')}</Text> : null}
         </Box>
       </Box>
-      <Text dimColor italic>
-        <HintLine text={t('hint-select-exit')} />
-      </Text>
+      <PickerHint text={t('hint-select-exit')} />
     </Pane>
   )
 }
