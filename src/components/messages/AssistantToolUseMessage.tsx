@@ -504,11 +504,11 @@ export function AssistantToolUseMessage({
             toolName={tool.name}
           />
           <HeaderTitle name={name} title={headerTitle} isTerminal={headerIsTerminal} folded={foldedHeader} displayArgs={displayArgs} argsLanguage={argsLanguage} nameColor={toolNameColor(tool.name)} filePath={filePath} onOpenFile={onOpenFile} />
-          {!isRunning && (
-            <Box flexWrap="nowrap">
-              <Text dimColor={!hovered}>{elapsedText}</Text>
-            </Box>
-          )}
+          {/* Always paint the elapsed cell (live while running, final when
+              settled) so the disclose column does not jump right on settle. */}
+          <Box flexShrink={0} height={1} overflow="hidden">
+            <Text dimColor={!hovered}>{elapsedText !== '' ? elapsedText : ' · 0s'}</Text>
+          </Box>
           {/* Always reserve the ▾/▴ column — hover only swaps the glyph so
               the header never gains a cell and shoves the title. */}
           <Box flexShrink={0} width={1} height={1} overflow="hidden">

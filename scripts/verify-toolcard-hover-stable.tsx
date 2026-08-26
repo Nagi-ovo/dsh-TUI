@@ -1,6 +1,7 @@
 /**
- * Tool-card hover glyph: ▾/▴ column is always reserved so hover cannot shove
- * the header title by one cell.
+ * Tool-card header chrome: elapsed clock is always painted (live while
+ * running, final when settled) and the ▾/▴ disclose column is always
+ * reserved so settle/hover cannot shove the title.
  *
  * Run: node --import tsx/esm scripts/verify-toolcard-hover-stable.tsx
  */
@@ -19,36 +20,15 @@ function check(name: string, ok: boolean, extra = ''): void {
   if (!ok) failed += 1
 }
 
-async function main(): Promise<void> {
-  // Structural: idle paints a width-1 disclose cell (space), never mounts on hover.
-  const src = readFileSync(new URL('../src/components/messages/AssistantToolUseMessage.tsx', import.meta.url), 'utf8')
-  check(
-    'disclose column always rendered',
-    /width=\{1\}[\s\S]*hovered \? \(isExpanded \? '▴' : '▾'\) : ' '/.test(src)
-      || src.includes("hovered ? (isExpanded ? '▴' : '▾') : ' '"),
-  )
-  check('no mount-on-hover disclose', !src.includes('{hovered && (\n            <Box flexShrink={0}>\n              <Text dimColor>{isExpanded ? \'▴\' : \'▾\'}</Text>'))
-
+async function headerFor(status: 'running' | 'ok'): Promise<string> {
   const React = (await import('react')).default
   const { render } = await import('../src/ui.js')
   const { AssistantToolUseMessage } = await import('../src/components/messages/AssistantToolUseMessage.js')
 
-  const tool = {
-    callId: 'c1',
-    argsText: '{}',
-    status: 'ok' as const,
-    startedAt: 0,
-    durationMs: 12,
-    name: 'bash',
-    callView: { card: 'terminal', title: 'echo hello-from-toolcard-hover' },
-    resultView: { card: 'terminal', output: 'hello', exitCode: 0 },
-    resultFull: 'hello',
-  }
-
-  const term = new XTerm({ cols: 80, rows: 16, scrollback: 10, allowProposedApi: true })
+  const term = new XTerm({ cols: 80, rows: 12, scrollback: 5, allowProposedApi: true })
   class FakeStdout extends Writable {
     columns = 80
-    rows = 16
+    rows = 12
     isTTY = true
     _write(chunk: unknown, _e: BufferEncoding, cb: () => void) { term.write(String(chunk), cb) }
   }
@@ -61,6 +41,17 @@ async function main(): Promise<void> {
     setRawMode() { return this }
     ref() { return this }
     unref() { return this }
+  }
+  const tool = {
+    callId: 'c1',
+    argsText: '{}',
+    status,
+    startedAt: Date.now() - 5000,
+    durationMs: status === 'ok' ? 5000 : undefined,
+    name: 'bash',
+    callView: { card: 'terminal', title: 'echo hello-from-toolcard-hover' },
+    resultView: status === 'ok' ? { card: 'terminal', output: 'hello', exitCode: 0 } : undefined,
+    resultFull: status === 'ok' ? 'hello' : undefined,
   }
   const inst = await render(
     React.createElement(AssistantToolUseMessage as any, {
@@ -76,13 +67,30 @@ async function main(): Promise<void> {
       patchConsole: false,
     },
   )
-  await sleep(100)
-  const header = viewportLines(term, 16).find(l => /Bash|bash|hello-from-toolcard/.test(l)) ?? ''
-  check('header renders', header.length > 0, header.slice(0, 80))
-  check('title column', header.search(/Bash/i) === 2, `at=${header.search(/Bash/i)}`)
-
+  await sleep(80)
+  const header = viewportLines(term, 12).find(l => /Bash|bash|hello-from-toolcard/.test(l)) ?? ''
   await inst.unmount()
   term.dispose()
+  return header
+}
+
+async function main(): Promise<void> {
+  const src = readFileSync(new URL('../src/components/messages/AssistantToolUseMessage.tsx', import.meta.url), 'utf8')
+  check(
+    'disclose column always rendered',
+    src.includes("hovered ? (isExpanded ? '▴' : '▾') : ' '"),
+  )
+  check('elapsed not gated on !isRunning', !/\{!isRunning && \(/.test(src))
+
+  const running = await headerFor('running')
+  const settled = await headerFor('ok')
+  check('running header present', /Bash/.test(running) && / · /.test(running), running.slice(0, 80))
+  check('settled header present', /Bash/.test(settled) && / · /.test(settled), settled.slice(0, 80))
+  const clockRun = running.search(/ · /)
+  const clockOk = settled.search(/ · /)
+  check('clock column stable on settle', clockRun === clockOk && clockRun >= 0, `${clockRun}→${clockOk}`)
+  check('title column stable on settle', running.search(/Bash/i) === settled.search(/Bash/i), `${running.search(/Bash/i)}→${settled.search(/Bash/i)}`)
+
   if (failed > 0) process.exit(1)
   console.log('verify-toolcard-hover-stable: all checks passed')
   process.exit(0)
