@@ -201,18 +201,18 @@ A full-screen scene (no scrollback pollution) over the whole session timeline:
 
 ### /settings editor
 
-`/settings` opens the plugin settings editor with calm category tabs
+`/settings` opens the plugin settings editor with card sections and calm category tabs
 (General / Status bar / Shortcuts). Switching categories does not move the
-title or footer chrome. Editing is **staged**: `←`/`→` change category,
-`↑`/`↓` move fields, `Enter` toggles booleans in place or opens an in-place
-select / text editor, `s` saves / `d` discards / `Esc` first drops dirty
-sections, then exits. Field hints live in a reserved footer slot so focus
-never expands a list row. Approval / ask-user-question interrupts briefly
-unmount the screen, but focus, category, and unsaved drafts survive until
-you explicitly close Settings. Fields under the dsh-tui namespace are written
-to the user layer of settings.yaml and take **effect immediately** (`lang`,
-`statusBar.*`, …); namespaces without a declared TUI section sit behind the
-collapsed Other tab and need manual edits to `~/.dsh/settings.yaml`.
+title or footer chrome. **Auto-save**: `←`/`→` change category, `↑`/`↓` move fields,
+`Enter` toggles booleans in place (`[✓]` chip) or opens an in-place select / text editor
+(confirmed edits write immediately), `Esc` exits (Esc from a group goes back, Esc in edit
+cancels the draft). Field hints live in the bottom help bar so focus never expands a list
+row; save success/failure briefly appears in the footer notice slot. Mouse: clicking a field
+row focuses it and runs that row's Enter action; hover moves focus (briefly locked after key
+nav); the wheel walks the focused row. Fields under the dsh-tui namespace are written to the
+user layer of settings.yaml and take **effect immediately** (`lang`, `statusBar.*`, …);
+namespaces without a registered TUI section are not listed in the screen — edit
+`~/.dsh/settings.yaml` manually.
 
 ### Model and preset
 

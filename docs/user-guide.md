@@ -161,7 +161,7 @@ dsh-tui
 `q`/`Esc` 退出（Esc 三层：收详情→清查询→关闭）
 
 **/settings 设置面板**
-`←/→` 切换分类 · `↑/↓` 移动字段 · `Enter` 切换/编辑（布尔就地开关，下拉就地选择）· `s` 保存 · `d` 放弃 · `Esc` 先丢脏草稿再退出；字段说明固定在底栏，不撑高列表
+`←/→` 切换分类 · `↑/↓` 移动字段 · `Enter` 切换/编辑（布尔 `[✓]` 就地开关，下拉就地选择，文本/数字 Enter 确认即写盘）· `Esc` 退出（分组内 Esc 返回上级，编辑态 Esc 取消草稿）；字段说明固定在底栏 help bar，不撑高列表
 
 **/btw 侧问面板**
 `↑/↓` 滚动 · `Space`/`Enter`/`Esc` 关闭 · `c` 复制答案 · 等待中 `Esc` 取消
@@ -425,10 +425,9 @@ dsh-tui
 
 ### 5.3 /settings 设置编辑器
 
-`/settings` 打开插件设置编辑器；顶部分类页（常规 / 底栏 / 快捷键）切换时标题与底栏不跟着抖。
-**编辑是暂存制**：`s` 保存 / `d` 放弃 / `Esc` 丢弃脏区退出。字段说明落在保留的底栏槽位，焦点移动不改变列表行高。
-审批 / 问卷打断卸下设置屏后，焦点与未保存草稿会保留到打断结束。
-dsh-tui 自身区块（写入 settings.yaml 用户层，实时生效）共 20 个字段：
+`/settings` 打开插件设置编辑器；卡片式分区 + 顶部分类页（常规 / 底栏 / 快捷键），切换分类时标题与底栏不跟着抖。
+**自动保存**：确认即写盘（布尔 `Enter` 就地切换、select 就地选择、文本/数字编辑后 `Enter` 保存）；`Esc` 直接退出（分组页 Esc 返回、编辑态 Esc 取消草稿）。字段说明落在底栏 help bar，焦点移动不改变列表行高；保存成功/失败在底栏通知槽短暂提示。
+dsh-tui 自身区块（写入 settings.yaml 用户层，即时生效）共 20 个字段：
 
 | 字段 | 说明 |
 |---|---|
@@ -439,7 +438,7 @@ dsh-tui 自身区块（写入 settings.yaml 用户层，实时生效）共 20 �
 | toolBackground | 工具卡背景强调：none / subtle / strong |
 | statusBar.* | 上表全部状态栏开关（compact/model/thinking/cwd/contextUsage/cache/tokens/cost/tps/gitBranch/sessionTitle/sessionId/mode/contextBar/activity/trajectory；statusBar.sessionId 是底栏显示开关，与 cordis 的启动 sessionId 无关） |
 
-未声明 TUI 区块的命名空间以只读形式列出，需手工编辑 `~/.dsh/settings.yaml`。
+未在插件中注册 TUI 设置区块的命名空间不在屏内列出，需手工编辑 `~/.dsh/settings.yaml`。
 provider / model / cwd / effort / fullscreen / preset / workspace / sessionId / modes
 **不在 /settings 内**，要改 `$DSH_HOME/profiles/dsh-tui/cordis.patch.yml`。
 

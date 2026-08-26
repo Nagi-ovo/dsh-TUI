@@ -2128,8 +2128,8 @@ export function Chat({
     // Same for the session tree: plain letters drive its search, clicks and
     // Enter drive its action menu.
     if (treeOpen) return
-    // Same for the settings screen: plain letters (s save / d discard) and
-    // the field draft editor belong to it alone.
+    // Same for the settings screen: field drafts and in-place editors belong to
+    // it alone.
     if (settingsOpen) return
     // Subagent dashboard or detail scene: it owns the keyboard while open.
     if (subagentDashboardOpen || subagentDetailId !== null) return
@@ -2935,8 +2935,6 @@ export function Chat({
   // conversation (an early return after every hook above has run), so there
   // is no transcript underneath to be repainted or bled through.
   if (settingsOpen) {
-    // Settings owns its own session bag (focus + staged forms); closing clears
-    // it. Interrupt remounts keep the bag so the screen reopens calm.
     const screen = <Settings channel={channel} onClose={() => setSettingsOpen(false)} />
     return fullscreen ? screen : <AlternateScreen>{screen}</AlternateScreen>
   }
