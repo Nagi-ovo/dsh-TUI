@@ -12,7 +12,7 @@ import type { WheelEvent } from '../ink/events/wheel-event.js'
  *   ╭─ 标题 ─────────────────────╮
  *   │ ❯ 行内容 …                 │
  *   │   行内容 …                 │
- *   │ ↑2 · ↓3                    │  ← 仅当列表被裁剪
+ *   │ ↑2 · ↓3                    │  ← scroll indicators (row always reserved)
  *   ╰────────────────────────────╯
  *
  * 底边 ╰╯ 直接坐在输入框顶边 ╭╮ 的上一行（PromptInput 的浮层包装去掉了
@@ -39,7 +39,7 @@ export function SuggestionCard({
   columns: number
   /** 边框色（主题 token 或裸色）；缺省 promptBorder。 */
   accent?: keyof Theme | Color
-  /** 底部 dim 提示行（滚动指示）；null/undefined 时不渲染。 */
+  /** 底部 dim 提示行（滚动指示）；无裁剪时仍占一行，避免卡片高度跳动。 */
   footer?: string | null
   /** 已渲染的行内容（每行一个节点），本组件为各行补上左右边框。 */
   rows: readonly React.ReactNode[]
@@ -97,15 +97,15 @@ export function SuggestionCard({
           <Text color={borderColor}>│</Text>
         </Box>
       ))}
-      {footer ? (
-        <Box flexDirection="row" width="100%">
-          <Text color={borderColor}>│</Text>
-          <Box flexGrow={1} minWidth={0}>
-            <Text dimColor wrap="truncate-end"> {footer}</Text>
-          </Box>
-          <Text color={borderColor}>│</Text>
+      {/* Always one footer row so crossing the window boundary (scroll
+          indicators appearing/disappearing) cannot change card height. */}
+      <Box flexDirection="row" width="100%" height={1} overflow="hidden" flexShrink={0}>
+        <Text color={borderColor}>│</Text>
+        <Box flexGrow={1} minWidth={0}>
+          <Text dimColor wrap="truncate-end">{footer ? ` ${footer}` : ' '}</Text>
         </Box>
-      ) : null}
+        <Text color={borderColor}>│</Text>
+      </Box>
       <Text color={borderColor} wrap="truncate-end">{`╰${'─'.repeat(inner)}╯`}</Text>
     </ink-box>
   )

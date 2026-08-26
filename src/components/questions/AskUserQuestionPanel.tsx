@@ -354,7 +354,9 @@ export function AskUserQuestionPanel({
   const renderInputRow = (): React.ReactNode => (
     <Box
       flexDirection="row"
-      marginTop={inputFocused ? 1 : 0}
+      // Always reserve the gap above the custom-input row — focus-dependent
+      // marginTop shoved the list and hint when Tab/↓ landed on this row.
+      marginTop={1}
       onClick={focusInputRow}
       onMouseEnter={() => setHoverIndex(options.length)}
       onMouseLeave={() => setHoverIndex(current => (current === options.length ? -1 : current))}
@@ -412,7 +414,6 @@ export function AskUserQuestionPanel({
           <Box
             key={`${absoluteIndex}:${option.label}`}
             flexDirection="row"
-            marginTop={!windowedOptions && focused ? 1 : 0}
             onClick={() => clickOption(absoluteIndex)}
             onMouseEnter={() => setHoverIndex(absoluteIndex)}
             onMouseLeave={() => setHoverIndex(current => (current === absoluteIndex ? -1 : current))}
@@ -492,12 +493,12 @@ export function AskUserQuestionPanel({
       </Box>
       {renderOptions()}
       {error !== null && (
-        <Box marginTop={1}>
-          <Text color="error">{error}</Text>
+        <Box height={1} overflow="hidden" marginTop={1} flexShrink={0}>
+          <Text color="error" wrap="truncate-end">{error}</Text>
         </Box>
       )}
-      <Box marginTop={1}>
-        <Text dimColor>{hintParts.join(' · ')}</Text>
+      <Box height={1} overflow="hidden" marginTop={1} flexShrink={0}>
+        <Text dimColor wrap="truncate-end">{hintParts.join(' · ')}</Text>
       </Box>
     </Box>
   )

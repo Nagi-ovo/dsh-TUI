@@ -18,6 +18,7 @@ import {
   renderMiniContextBar,
   renderTpsGauge,
   renderTpsSparkline,
+  renderTpsTrackIdle,
   speedColor,
   tpsStats,
 } from './StatusMetrics.js'
@@ -91,7 +92,7 @@ function FieldLine({
             flexShrink={1}
             {...(part.id === undefined ? {} : hoverProps(part.id))}
           >
-            <Text wrap="truncate">{part.node}</Text>
+            <Text wrap="truncate-end">{part.node}</Text>
           </Box>
         </React.Fragment>
       ))}
@@ -117,7 +118,7 @@ export function StatusLine({
    * than as a count in the corner. Absent in headless embeds, where nothing
    * folds the event log.
    */
-  wake?: { band: WaveBand; hint?: string; tick: number }
+  wake?: { band: WaveBand; hint?: string; active?: boolean }
 }) {
   const { columns } = useTerminalSize()
   const [themeName] = useTheme()
@@ -224,6 +225,9 @@ export function StatusLine({
 
   let tpsPart: FieldPart | undefined
   if (statusBar.tps && channel.tps !== undefined) {
+    // Always render a fixed-width glyph track + numeric suffix so working↔idle
+    // and sample growth cannot shove neighboring status fields horizontally.
+    const tpsLabel = `${Math.round(channel.tps)} tps`
     if (channel.working && channel.tpsSamples.length === 0) {
       tpsPart = {
         key: 'tps',
@@ -231,7 +235,7 @@ export function StatusLine({
         node: (
           <Text>
             {renderTpsGauge(channel.tps, channel.tps)}{' '}
-            <Text dimColor>{Math.round(channel.tps)} tps</Text>
+            <Text dimColor>{tpsLabel}</Text>
           </Text>
         ),
       }
@@ -253,7 +257,11 @@ export function StatusLine({
       tpsPart = {
         key: 'tps',
         id: 'tps',
-        node: <Text dimColor>{Math.round(channel.tps)} t/s</Text>,
+        node: (
+          <Text dimColor>
+            {renderTpsTrackIdle()} {tpsLabel}
+          </Text>
+        ),
       }
     }
   }
@@ -433,25 +441,26 @@ export function StatusLine({
         ) : null}
         {/* Row 2: optional status fields — every field is independently gated. */}
         {hasStatusFields ? statusBar.compact ? (
-          <Box flexDirection="row" justifyContent="space-between" gap={2}>
-            <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
+          <Box flexDirection="row" justifyContent="space-between" gap={2} height={1} overflow="hidden">
+            <Box flexGrow={1} flexShrink={1} flexDirection="row" height={1} overflow="hidden">
               <FieldLine parts={compactFields} hoverProps={hoverProps} />
             </Box>
             {ctxNode !== undefined ? (
-              <Box flexShrink={0} {...hoverProps('ctx')}>
-                <Text wrap="truncate">{ctxNode}</Text>
+              <Box flexShrink={0} height={1} overflow="hidden" {...hoverProps('ctx')}>
+                <Text wrap="truncate-end">{ctxNode}</Text>
               </Box>
             ) : null}
           </Box>
         ) : (
-          <Box flexDirection="row" justifyContent="space-between" gap={2}>
-            <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
+          <Box flexDirection="row" justifyContent="space-between" gap={2} height={1} overflow="hidden">
+            <Box flexGrow={1} flexShrink={1} flexDirection="row" height={1} overflow="hidden">
               <FieldLine parts={fullLeftFields} hoverProps={hoverProps} />
             </Box>
             <Box
               justifyContent="flex-end"
               flexShrink={2}
               flexDirection="row"
+              height={1}
               overflow="hidden"
             >
               <FieldLine parts={rightFields} hoverProps={hoverProps} />
@@ -487,7 +496,7 @@ export function StatusLine({
             {showActivity ? trailer : null}
           </Box>
           {showTrajectory && wake !== undefined ? (
-            <MiniWake band={wake.band} hint={wake.hint} tick={wake.tick} />
+            <MiniWake band={wake.band} hint={wake.hint} active={wake.active} />
           ) : null}
         </Box> : null}
       </Box>
@@ -524,7 +533,7 @@ function buildHoverDetail(
     const free = Math.max(0, window - contextUsed)
     if (key === 'free') {
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {dim('free ')}{formatTokens(free)} · {((free / window) * 100).toFixed(1)}% {t('status-detail-of-window')}
         </Text>
       )
@@ -533,7 +542,7 @@ function buildHoverDetail(
     if (segment === undefined) return null
     const tokens = channel.contextSegments[segment.key]
     return (
-      <Text wrap="truncate">
+      <Text wrap="truncate-end">
         {dim(`${segment.labels[1] ?? segment.key} `)}{formatTokens(tokens)} ·{' '}
         {((tokens / window) * 100).toFixed(1)}% {t('status-detail-of-window')}
       </Text>
@@ -551,7 +560,7 @@ function buildHoverDetail(
         segment => `${segment.labels[1] ?? segment.key} ${formatTokens(channel.contextSegments[segment.key])}`,
       ).join(' · ')
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {((contextUsed / window) * 100).toFixed(1)}% ·{' '}
           {formatTokens(contextUsed)}/{formatTokens(window)} · {dim('free ')}{formatTokens(free)}
           {' · '}{segments}
@@ -562,7 +571,7 @@ function buildHoverDetail(
       const rate = formatCacheHitRate(usage)
       if (usage === undefined || rate === undefined) return null
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {dim('cache ')}{rate} · {dim('read ')}{formatTokens(usage.cacheRead)} ·{' '}
           {dim('write ')}{formatTokens(usage.cacheWrite)} · {dim('input ')}{formatTokens(usage.input)}
         </Text>
@@ -572,7 +581,7 @@ function buildHoverDetail(
       if (channel.tps === undefined) return null
       const stats = tpsStats(channel.tpsSamples, Date.now())
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {dim('tps ')}{Math.round(channel.tps)} · {dim('avg60 ')}{stats.avg.toFixed(1)} ·{' '}
           {dim('mean ')}{stats.mean.toFixed(1)} · {dim('p95 ')}{stats.p95.toFixed(1)}
         </Text>
@@ -581,7 +590,7 @@ function buildHoverDetail(
     case 'tokens': {
       const { input, output } = channel.tokens
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {dim('in ')}{input.toLocaleString()} · {dim('out ')}{output.toLocaleString()} ·{' '}
           {dim('total ')}{(input + output).toLocaleString()}
         </Text>
@@ -592,7 +601,7 @@ function buildHoverDetail(
       if (split === undefined) return null
       const { input, output, cacheRead } = channel.tokens
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {dim('≈¥')}{split.total.toFixed(2)} · {dim('peak ')}¥{split.peak.toFixed(2)}
           {' · '}{dim('idle ')}¥{split.idle.toFixed(2)} · {dim('in ')}{formatTokens(input)}
           {' · '}{dim('out ')}{formatTokens(output)} · {dim('cache ')}{formatTokens(cacheRead)}
@@ -604,7 +613,7 @@ function buildHoverDetail(
       const goal = channel.goal
       if (goal === undefined) return null
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {dim('goal ')}{goal.phase} · {dim('r')}{goal.roundsStarted}/{goal.maxGoalRounds} ·{' '}
           {goal.objective}
         </Text>
@@ -612,19 +621,19 @@ function buildHoverDetail(
     }
     case 'sessionId':
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {dim('# ')}{channel.agentId} · {t('status-detail-session-id')}
         </Text>
       )
     case 'cwd':
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {dim('cwd ')}{channel.displayCwd}
         </Text>
       )
     case 'title':
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {dim('title ')}{channel.sessionTitle}
         </Text>
       )

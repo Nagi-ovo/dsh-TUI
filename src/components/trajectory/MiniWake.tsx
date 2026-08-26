@@ -1,6 +1,7 @@
 import React from 'react'
 import chalk from 'chalk'
 import { Box, Text, useTheme } from '../../ui.js'
+import { useAnimationFrame } from '../../ink/hooks/use-animation-frame.js'
 import { getTheme } from '../../theme.js'
 import { alive, mix } from '../../trajectory/motion.js'
 import { parseRGB } from '../Spinner/spinnerUtils.js'
@@ -65,7 +66,7 @@ export function miniWakeWidth(columns: number): number {
 export function MiniWake({
   band,
   hint,
-  tick,
+  active = false,
 }: {
   /** The session projected onto {@link miniWakeWidth} columns. */
   band: WaveBand
@@ -74,8 +75,11 @@ export function MiniWake({
    * opened for the first time. Absent afterwards.
    */
   hint?: string
-  tick: number
+  /** Drive the breathing edge while the session is working. */
+  active?: boolean
 }): React.ReactNode {
+  const [viewportRef, wakeTime] = useAnimationFrame(active ? 120 : null)
+  const tick = Math.floor(wakeTime / 120)
   const [themeName] = useTheme()
   const theme = getTheme(themeName)
   if (band.buckets.length === 0) return null
@@ -107,7 +111,7 @@ export function MiniWake({
   }
 
   return (
-    <Box flexShrink={0} flexDirection="row" gap={1}>
+    <Box ref={viewportRef} flexShrink={0} flexDirection="row" gap={1}>
       <Text>{strip}</Text>
       {hint !== undefined ? <Text color="subtle">{hint}</Text> : null}
     </Box>

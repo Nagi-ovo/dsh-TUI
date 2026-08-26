@@ -96,9 +96,6 @@ export function HelpMenu({
   const commandRows = chrome.map(command => (
     <HelpCommandRow key={command.name} command={command} onPick={onCommandPick} />
   ))
-  const compactCommandRows = chrome.map(command => (
-    <HelpCommandRow key={command.name} command={command} onPick={onCommandPick} />
-  ))
   const commandList = (
     <Box flexDirection="column" flexShrink={0}>
       <Text dimColor>{t('help-commands-title')}</Text>
@@ -132,7 +129,7 @@ export function HelpMenu({
           {primaryShortcuts}
           {secondaryShortcuts}
           <Text dimColor>{t('help-commands-title')}</Text>
-          {compactCommandRows}
+          {commandRows}
         </ScrollBox>
       ) : (
         <Box paddingX={2} flexDirection="row" gap={4} flexGrow={1}>
@@ -146,7 +143,7 @@ export function HelpMenu({
           </ScrollBox>
         </Box>
       )}
-      <Box paddingX={2} flexShrink={0}>
+      <Box paddingX={2} flexShrink={0} height={1} overflow="hidden">
         <Text dimColor wrap="truncate-end">{t('help-scroll-hint')}</Text>
       </Box>
     </Box>
@@ -167,6 +164,8 @@ function HelpCommandRow({
   return (
     <Box
       flexShrink={0}
+      height={1}
+      overflow="hidden"
       onClick={clickable ? () => onPick(command.name) : undefined}
       onMouseEnter={clickable ? (): void => setHovered(true) : undefined}
       onMouseLeave={clickable ? (): void => setHovered(false) : undefined}

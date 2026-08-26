@@ -4,7 +4,7 @@ import { Box, Text, useTerminalSize } from '../ui.js'
 import type { SkillInfo } from '../dsh-adapter/channel.js'
 import { Pane } from './design-system/Pane.js'
 import { ListItem } from './design-system/ListItem.js'
-import { HintLine } from './design-system/HintLine.js'
+import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
 import { LoadingState } from './design-system/LoadingState.js'
 import { listWindow } from './listWindow.js'
 
@@ -51,23 +51,21 @@ export function SkillsPicker({
   const { rows: terminalRows } = useTerminalSize()
   // 每项恒占 2 行（正文 + 来源/简述描述行，均 truncate 成单行）。
   // 框架行：浮层预留 8 + Pane 2 + 标题 2 + 页脚 1 + 挂载包裹 marginTop 1 = 14（ModelPicker 同款）。
+  const listSlots = Math.max(terminalRows - 14, 2)
   const { start, end } = listWindow(
     skills.map(() => 2),
     focusIndex,
-    Math.max(terminalRows - 14, 2),
+    listSlots,
   )
   return (
     <Pane color="permission">
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Text color="remember" bold>
-            {t('picker-title-skills')}
-          </Text>
-        </Box>
-        {skills.length === 0 ? (
-          <Text dimColor>{t('skills-empty')}</Text>
-        ) : (
-          skills.slice(start, end).map((skill, index) => {
+        <PickerTitle>{t('picker-title-skills')}</PickerTitle>
+        <Box flexDirection="column" minHeight={listSlots} flexShrink={0}>
+          {skills.length === 0 ? (
+            <Text dimColor>{t('skills-empty')}</Text>
+          ) : (
+            skills.slice(start, end).map((skill, index) => {
             const absoluteIndex = start + index
             return (
               <ListItem
@@ -83,28 +81,30 @@ export function SkillsPicker({
             )
           })
         )}
+        </Box>
       </Box>
-      <Text dimColor italic>
-        <HintLine text={t('hint-fill-exit')} />
-      </Text>
+      <PickerHint text={t('hint-fill-exit')} />
     </Pane>
   )
 }
 
 /** `/skills` while the registry snapshot is still in flight (ModelPickerLoading 同款). */
 export function SkillsPickerLoading(): React.ReactNode {
+  const { rows: terminalRows } = useTerminalSize()
+  const listSlots = Math.max(terminalRows - 14, 2)
   return (
     <Pane color="permission">
-      <Box flexDirection="column" gap={1}>
-        <Text bold color="permission">
-          {t('picker-title-skills')}
-        </Text>
-        <LoadingState
-          message={t('skills-loading')}
-          bold
-          subtitle={t('skills-loading-subtitle')}
-        />
+      <Box flexDirection="column">
+        <PickerTitle>{t('picker-title-skills')}</PickerTitle>
+        <Box height={listSlots} flexShrink={0}>
+          <LoadingState
+            message={t('skills-loading')}
+            bold
+            subtitle={t('skills-loading-subtitle')}
+          />
+        </Box>
       </Box>
+      <PickerHint text={t('hint-fill-exit')} />
     </Pane>
   )
 }

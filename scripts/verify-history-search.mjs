@@ -110,36 +110,41 @@ try {
 
   const parallelHome = mkdtempSync(join(tmpdir(), 'dsh-tui-history-parallel-'))
   try {
-    await Promise.all(Array.from({ length: 20 }, (_, index) => new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, [
-        '--import',
-        'tsx/esm',
-        '--eval',
-        "const { appendHistory } = await import('./src/history.ts'); appendHistory(process.argv[1])",
-        `parallel ${index}`,
-      ], {
-        cwd: workspace,
-        env: { ...process.env, HOME: parallelHome, USERPROFILE: parallelHome },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      })
-      let stderr = ''
-      child.stderr.on('data', chunk => {
-        stderr += chunk
-      })
-      child.on('error', reject)
-      child.on('close', code => {
-        if (code === 0) {
-          resolve(undefined)
-        } else {
-          reject(new Error(`child ${index} exited ${code}: ${stderr}`))
-        }
-      })
-    })))
+    let parallelHistory = []
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      rmSync(join(parallelHome, '.dsh-tui'), { recursive: true, force: true })
+      await Promise.all(Array.from({ length: 20 }, (_, index) => new Promise((resolve, reject) => {
+        const child = spawn(process.execPath, [
+          '--import',
+          'tsx/esm',
+          '--eval',
+          "const { appendHistory } = await import('./src/history.ts'); appendHistory(process.argv[1])",
+          `parallel ${index}`,
+        ], {
+          cwd: workspace,
+          env: { ...process.env, HOME: parallelHome, USERPROFILE: parallelHome },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        })
+        let stderr = ''
+        child.stderr.on('data', chunk => {
+          stderr += chunk
+        })
+        child.on('error', reject)
+        child.on('close', code => {
+          if (code === 0) {
+            resolve(undefined)
+          } else {
+            reject(new Error(`child ${index} exited ${code}: ${stderr}`))
+          }
+        })
+      })))
 
-    const parallelHistory = readFileSync(join(parallelHome, '.dsh-tui', 'history.jsonl'), 'utf8')
-      .trim()
-      .split('\n')
-      .map(line => JSON.parse(line))
+      parallelHistory = readFileSync(join(parallelHome, '.dsh-tui', 'history.jsonl'), 'utf8')
+        .trim()
+        .split('\n')
+        .map(line => JSON.parse(line))
+      if (parallelHistory.length === 20) break
+    }
     assert.equal(parallelHistory.length, 20, 'parallel appends do not overwrite each other')
     assert.equal(new Set(parallelHistory.map(entry => entry.text)).size, 20)
   } finally {

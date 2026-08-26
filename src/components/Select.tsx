@@ -36,7 +36,10 @@ export function Select({
    */
   onPick?: (index: number, value: string, event: ClickEvent) => void
 }): React.ReactNode {
+  const anyDescription = options.some(option => option.description !== undefined && option.description !== '')
   // Window around the focus row, with scroll hints at the edges (CC style).
+  // When any option has a description, every row reserves the second line so
+  // focus motion cannot change the list's pixel height mid-scroll.
   const startIndex = Math.max(
     0,
     Math.min(
@@ -56,7 +59,9 @@ export function Select({
             key={option.value}
             isFocused={absoluteIndex === focusIndex}
             isSelected={option.value === selectedValue}
-            description={option.description}
+            description={anyDescription
+              ? (option.description !== undefined && option.description !== '' ? option.description : ' ')
+              : undefined}
             showScrollUp={absoluteIndex === startIndex && startIndex > 0}
             showScrollDown={
               absoluteIndex === endIndex - 1 && endIndex < options.length

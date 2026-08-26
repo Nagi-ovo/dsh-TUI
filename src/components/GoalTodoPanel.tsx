@@ -14,11 +14,12 @@ const PHASE_LABEL: Record<ChannelGoal['phase'], string> = {
   complete: '✓ complete',
 }
 
-/** Compact phase marker for the status-footer chip. */
+/** Compact phase marker for the status-footer chip — always one display cell
+ *  so phase changes cannot shove StatusLine neighbors (⏸/⛔ are often width 2). */
 const PHASE_GLYPH: Record<ChannelGoal['phase'], string> = {
   active: '●',
-  paused: '⏸',
-  blocked: '⛔',
+  paused: '◐',
+  blocked: '✕',
   complete: '✓',
 }
 

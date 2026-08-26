@@ -1,9 +1,9 @@
 import React from 'react'
 import { LANGS, t, type Lang } from '../i18n.js'
-import { Box, Text } from '../ui.js'
+import { Box } from '../ui.js'
 import { Pane } from './design-system/Pane.js'
 import { Select } from './Select.js'
-import { HintLine } from './design-system/HintLine.js'
+import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
 
 /**
  * `/lang` en/zh picker: bare `/lang` opens this picker (the current language
@@ -23,11 +23,7 @@ export function LangPicker({
   return (
     <Pane color="permission">
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Text color="remember" bold>
-            {t('lang-picker-title')}
-          </Text>
-        </Box>
+        <PickerTitle>{t('lang-picker-title')}</PickerTitle>
         <Select
           options={LANGS.map(lang => ({
             value: lang,
@@ -38,10 +34,8 @@ export function LangPicker({
           selectedValue={currentLang}
           onPick={onPick ? index => onPick(index) : undefined}
         />
-        <Text dimColor italic>
-          <HintLine text={t('hint-confirm-exit')} />
-        </Text>
       </Box>
+      <PickerHint text={t('hint-confirm-exit')} />
     </Pane>
   )
 }

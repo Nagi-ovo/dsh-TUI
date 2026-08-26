@@ -5,7 +5,7 @@ import type { ChatRow } from '../dsh-adapter/channel.js'
 import type { TuiRewindMode } from '../dsh-adapter/extension-events.js'
 import { Pane } from './design-system/Pane.js'
 import { ListItem } from './design-system/ListItem.js'
-import { HintLine } from './design-system/HintLine.js'
+import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
 import { listWindow } from './listWindow.js'
 
 /**
@@ -53,11 +53,9 @@ export function RewindPicker({
 }): React.ReactNode {
   if (confirmRow !== null) {
     if (modes !== null) {
-      // Plugin modes: a described choice list (one extra row per
-      // description), windowed like the message list below.
+      // Plugin modes: uniform 2-line rows (label + description slot) so the
+      // confirm pane does not breathe when focus walks mixed descriptions.
       const { rows: terminalRows } = useTerminalSize()
-      const rowCosts = [2, ...modes.map(mode => (mode.description === undefined ? 1 : 2))]
-      const { start, end } = listWindow(rowCosts, modeIndex, Math.max(terminalRows - 10, 2))
       const options: readonly { key: string; label: string; description?: string }[] = [
         { key: 'conversation', label: t('rewind-mode-default'), description: t('rewind-confirm-desc') },
         ...modes.map(mode => ({
@@ -66,14 +64,19 @@ export function RewindPicker({
           ...(mode.description === undefined ? {} : { description: mode.description }),
         })),
       ]
+      const anyDesc = options.some(option => option.description !== undefined)
+      const rowHeight = anyDesc ? 2 : 1
+      const { start, end } = listWindow(
+        options.map(() => rowHeight),
+        modeIndex,
+        Math.max(terminalRows - 10, 2),
+      )
       return (
         <Pane color="permission">
           <Box flexDirection="column">
-            <Box marginBottom={1}>
-              <Text color="remember" bold>
-                {t('rewind-confirm-title')}
-              </Text>
-              <Text dimColor>{preview(confirmRow.text)}</Text>
+            <PickerTitle>{t('rewind-confirm-title')}</PickerTitle>
+            <Box height={1} overflow="hidden" marginBottom={1}>
+              <Text dimColor wrap="truncate-end">{preview(confirmRow.text)}</Text>
             </Box>
             {options.slice(start, end).map((option, index) => {
               const absoluteIndex = start + index
@@ -81,7 +84,7 @@ export function RewindPicker({
                 <ListItem
                   key={option.key}
                   isFocused={absoluteIndex === modeIndex}
-                  description={option.description}
+                  description={rowHeight === 2 ? (option.description ?? ' ') : undefined}
                   showScrollUp={absoluteIndex === start && start > 0}
                   showScrollDown={absoluteIndex === end - 1 && end < options.length}
                   onClick={onPickMode === undefined ? undefined : () => onPickMode(absoluteIndex)}
@@ -91,48 +94,38 @@ export function RewindPicker({
               )
             })}
           </Box>
-          <Text dimColor italic>
-            <HintLine text={t('hint-select-exit')} />
-          </Text>
+          <PickerHint text={t('hint-select-exit')} />
         </Pane>
       )
     }
     return (
       <Pane color="permission">
         <Box flexDirection="column">
-          <Box marginBottom={1}>
-            <Text color="remember" bold>
-              {t('rewind-confirm-title')}
-            </Text>
-          </Box>
+          <PickerTitle>{t('rewind-confirm-title')}</PickerTitle>
           <ListItem isFocused={false} description={t('rewind-confirm-desc')} onClick={onConfirm}>
             {preview(confirmRow.text)}
           </ListItem>
-          <Text dimColor italic>
-            <HintLine text={t('hint-rewind-back')} />
-          </Text>
+          <PickerHint text={t('hint-rewind-back')} />
         </Box>
       </Pane>
     )
   }
 
   const { rows: terminalRows } = useTerminalSize()
-  // 焦点窗口化按行预算：首项带 'last message' 描述占 2 行、其余 1 行
-  //（ListItem 保证单行截断）。rewind 是不可见确认的高危操作，焦点必须
-  // 始终在屏。框架行：浮层预留 8 + Pane 2 + 标题块 3 + 页脚 1 = 14。
+  // Uniform 2-line rows: the "last message" hint on index 0 used to make the
+  // window height change as focus left the top — reserve the description
+  // slot for every row so the overlay stays still.
   const { start, end } = listWindow(
-    rows.map((_, i) => (i === 0 ? 2 : 1)),
+    rows.map(() => 2),
     focusIndex,
     Math.max(terminalRows - 14, 2),
   )
   return (
     <Pane color="permission">
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Text color="remember" bold>
-            {t('rewind-title')}
-          </Text>
-          <Text dimColor>{t('rewind-subtitle')}</Text>
+        <PickerTitle>{t('rewind-title')}</PickerTitle>
+        <Box height={1} overflow="hidden" marginBottom={1}>
+          <Text dimColor wrap="truncate-end">{t('rewind-subtitle')}</Text>
         </Box>
         {rows.length === 0 ? (
           <ListItem isFocused={false}>{t('rewind-empty')}</ListItem>
@@ -143,7 +136,7 @@ export function RewindPicker({
               <ListItem
                 key={row.id}
                 isFocused={absoluteIndex === focusIndex}
-                description={absoluteIndex === 0 ? t('rewind-last-message') : undefined}
+                description={absoluteIndex === 0 ? t('rewind-last-message') : ' '}
                 showScrollUp={absoluteIndex === start && start > 0}
                 showScrollDown={absoluteIndex === end - 1 && end < rows.length}
                 onClick={
@@ -157,11 +150,11 @@ export function RewindPicker({
             )
           })
         )}
-        {busy && <Text dimColor>{t('rewind-waiting-plugins')}</Text>}
+        <Box height={1} overflow="hidden">
+          {busy ? <Text dimColor>{t('rewind-waiting-plugins')}</Text> : null}
+        </Box>
       </Box>
-      <Text dimColor italic>
-        <HintLine text={t('hint-select-exit')} />
-      </Text>
+      <PickerHint text={t('hint-select-exit')} />
     </Pane>
   )
 }

@@ -42,6 +42,21 @@ const GROUPS = {
 // /settings 设置屏回归（issue #165）：开屏、staged 编辑、revision 栅栏
 // 保存、密钥走 credentials、Esc 返回会话。
     ["repro-settings", ['node', '--import', 'tsx/esm', 'scripts/repro-settings.tsx']],
+    ["verify-settings-layout", ['node', '--import', 'tsx/esm', 'scripts/verify-settings-layout.tsx']],
+    ["verify-settings-remount", ['node', '--import', 'tsx/esm', 'scripts/verify-settings-remount.tsx']],
+    ["verify-effort-slider-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-effort-slider-stable.tsx']],
+    ["verify-approval-focus-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-approval-focus-stable.tsx']],
+    ["verify-askpanel-focus-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-askpanel-focus-stable.tsx']],
+    ["verify-statusline-tps-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-statusline-tps-stable.tsx']],
+    ["verify-toolcard-hover-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-toolcard-hover-stable.tsx']],
+    ["verify-working-slot-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-working-slot-stable.tsx']],
+    ["verify-suggestion-card-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-suggestion-card-stable.tsx']],
+    ["verify-ext-dialog-chrome-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-ext-dialog-chrome-stable.tsx']],
+    ["verify-history-search-chrome-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-history-search-chrome-stable.tsx']],
+    ["verify-picker-loading-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-picker-loading-stable.tsx']],
+    ["verify-picker-hover-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-picker-hover-stable.tsx']],
+    ["verify-help-menu-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-help-menu-stable.tsx']],
+    ["verify-theme-picker-slots", ['node', '--import', 'tsx/esm', 'scripts/verify-theme-picker-slots.tsx']],
     ["repro-inline-scrollback", ['node', '--import', 'tsx/esm', 'scripts/repro-inline-scrollback.tsx']],
     ["repro-inline-thirdparty", ['node', '--import', 'tsx/esm', 'scripts/repro-inline-thirdparty.tsx']],
 // 全屏 resize 空白回归：宽度变化清空行高缓存 → scrollHeight 估算塌缩，
@@ -55,6 +70,9 @@ const GROUPS = {
 // 曾以 120ms/卡片持续驱动 React commit，N 张相位错开合成 ~30ms
 // 均匀帧 cadence。
     ["verify-subagent-settle", ['node', '--import', 'tsx/esm', 'scripts/verify-subagent-settle.tsx']],
+// MiniWake 动画时钟不得每 120ms 重渲染整棵 Chat 树（working 时空闲
+// chatRenderProbe 必须为 0，paint 帧仍 ≥4）。
+    ["verify-miniwake-chat-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-miniwake-chat-stable.tsx']],
 // 子代理流投影批处理：chunk 风暴的 snapshot+行投影必须按 16ms 帧
 // 对齐合并（token 率 100-300/s 下的全量深拷贝热路径），且生命周期
 // 事件（tool/call、subagent/end）保持同步立即可见。

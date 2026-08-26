@@ -1,10 +1,10 @@
 import React from 'react'
-import { Box, Text } from '../ui.js'
+import { Box } from '../ui.js'
 import { t } from '../i18n.js'
 import type { TuiWorkspaceTarget } from '../workspaces.js'
 import { Pane } from './design-system/Pane.js'
 import { ListItem } from './design-system/ListItem.js'
-import { HintLine } from './design-system/HintLine.js'
+import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
 
 const WINDOW = 8
 
@@ -24,18 +24,17 @@ export function WorkspacePicker({
 }): React.ReactNode {
   const start = Math.max(0, Math.min(focusIndex - Math.floor(WINDOW / 2), targets.length - WINDOW))
   const visible = targets.slice(start, start + WINDOW)
+  const anyDesc = targets.some(target => (target.description ?? target.uri) !== '')
   return (
     <Pane color="permission">
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Text color="remember" bold>{t('workspace-picker-title')}</Text>
-        </Box>
+        <PickerTitle>{t('workspace-picker-title')}</PickerTitle>
         {visible.map((target, index) => (
           <ListItem
             key={target.uri}
             isFocused={start + index === focusIndex}
             isSelected={target.cwd === currentCwd}
-            description={target.description ?? target.uri}
+            description={anyDesc ? ((target.description ?? target.uri) || ' ') : undefined}
             showScrollUp={index === 0 && start > 0}
             showScrollDown={index === visible.length - 1 && start + visible.length < targets.length}
             onClick={onPick === undefined ? undefined : () => onPick(start + index)}
@@ -44,7 +43,7 @@ export function WorkspacePicker({
           </ListItem>
         ))}
       </Box>
-      <Text dimColor italic><HintLine text={t('workspace-picker-hint')} /></Text>
+      <PickerHint text={t('workspace-picker-hint')} />
     </Pane>
   )
 }

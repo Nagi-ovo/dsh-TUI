@@ -3,7 +3,7 @@ import { t } from '../i18n.js'
 import { Box, Text } from '../ui.js'
 import { Pane } from './design-system/Pane.js'
 import { Select } from './Select.js'
-import { HintLine } from './design-system/HintLine.js'
+import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
 import { SESSION_COLOR_NAMES, SESSION_COLORS } from '../cc/sessionColors.js'
 
 /**
@@ -28,11 +28,7 @@ export function ColorPicker({
   return (
     <Pane color="permission">
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Text color="remember" bold>
-            {t('picker-title-color')}
-          </Text>
-        </Box>
+        <PickerTitle>{t('picker-title-color')}</PickerTitle>
         <Select
           options={SESSION_COLOR_NAMES.map(name => ({
             value: name,
@@ -47,10 +43,8 @@ export function ColorPicker({
           selectedValue={currentColor === '' ? undefined : currentColor}
           onPick={onPick ? index => onPick(index) : undefined}
         />
-        <Text dimColor italic>
-          <HintLine text={t('hint-confirm-exit')} />
-        </Text>
       </Box>
+      <PickerHint text={t('hint-confirm-exit')} />
     </Pane>
   )
 }

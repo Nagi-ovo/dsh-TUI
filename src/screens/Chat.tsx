@@ -35,9 +35,8 @@ import { ApprovalPanel } from '../components/approvals/ApprovalPanel.js'
 import { ExtensionDialog } from '../components/ExtensionDialog.js'
 import type { DOMElement } from '../ink/dom.js'
 import { useSearchHighlight } from '../ink/hooks/use-search-highlight.js'
-import { useTerminalTitle } from '../ink/hooks/use-terminal-title.js'
-import { useTerminalFocus } from '../ink/hooks/use-terminal-focus.js'
 import { useCopyOnSelect } from '../ink/hooks/use-copy-on-select.js'
+import { WorkingTerminalTitle } from '../components/WorkingTerminalTitle.js'
 import { useSelection } from '../ink/hooks/use-selection.js'
 import { NoSelect } from '../ink/components/NoSelect.js'
 import { LogoHeader, MessageList } from '../components/MessageList.js'
@@ -91,7 +90,6 @@ import { statSync } from 'node:fs'
 import { setClipboard } from '../ink/termio/osc.js'
 import { TerminalWriteContext } from '../ink/useTerminalNotification.js'
 import instances from '../ink/instances.js'
-import { useAnimationFrame } from '../ink/hooks/use-animation-frame.js'
 import { TrajectoryScene } from './TrajectoryScene.js'
 import { extendTrajectory, projectWave, type TrajBuild } from '../dsh-adapter/trajectory/index.js'
 import { miniWakeWidth } from '../components/trajectory/MiniWake.js'
@@ -99,6 +97,7 @@ import { readTrajectorySeen, writeTrajectorySeen } from '../trajectoryPrefs.js'
 import type { SessionEvent } from '../dsh-adapter/types.js'
 import { LoadingState } from '../components/design-system/LoadingState.js'
 import { Pane } from '../components/design-system/Pane.js'
+import { PickerHint, PickerTitle } from '../components/design-system/PickerChrome.js'
 import { loadHistory, type HistoryEntry } from '../history.js'
 import { formatLoadedContextReport } from '../utils/loaded-context.js'
 import {
@@ -132,9 +131,6 @@ const NO_ROWS: readonly ChatRow[] = []
 function capitalize(text: string): string {
   return text.length === 0 ? text : text[0].toUpperCase() + text.slice(1)
 }
-
-/** Terminal-title spinner frames (CC's TITLE_ANIMATION_FRAMES). */
-const TITLE_ANIMATION_FRAMES = ['⠂', '⠐']
 
 /** Searchable transcript text for one row (`/` incsearch, CC semantics:
  *  user text, assistant text, thinking, tool args/results, local output). */
@@ -180,6 +176,11 @@ let fallbackApprovalStore: ApprovalStore | undefined
  */
 let fallbackDialogStore: TuiDialogStore | undefined
 let fallbackStatusStore: TuiStatusStore | undefined
+
+/** Test-only: count Chat function-body executions (DSH_TUI_CHAT_RENDER_PROBE=1). */
+let chatRenderProbeCount = 0
+export function readChatRenderProbe(): number { return chatRenderProbeCount }
+export function resetChatRenderProbe(): void { chatRenderProbeCount = 0 }
 
 export function Chat({
   channel,
@@ -235,6 +236,7 @@ export function Chat({
    */
   trajectorySeen?: boolean
 }) {
+  if (process.env.DSH_TUI_CHAT_RENDER_PROBE === '1') chatRenderProbeCount += 1
   const writeRaw = React.useContext(TerminalWriteContext)
   // Re-render whenever the channel mutates; rows/status are read fresh below.
   React.useSyncExternalStore(channel.subscribe, () => channel.version)
@@ -706,12 +708,6 @@ export function Chat({
   loadingStartTimeRef.current = channel.turnStart
   const thinkingStatus = useThinkingStatus(channel.spinnerMode === 'thinking')
 
-  // Terminal tab title (ported from CC's AnimatedTerminalTitle): the session
-  // title when set, else "dsh-TUI"; a `⠂/⠐` spinner prefix while a turn is
-  // working (960ms cadence, only while the terminal is focused), a static
-  // `✦` otherwise. dsh-TUI brands the idle prefix with the DeepSeek whale.
-  const [titleFrame, setTitleFrame] = React.useState(0)
-  const terminalFocused = useTerminalFocus()
   // Mouse text selection auto-copy (CC's copy-on-select): active only in
   // fullscreen (<AlternateScreen> supplies mouse tracking); a no-op
   // subscription in inline mode, where selection belongs to the terminal.
@@ -721,19 +717,6 @@ export function Chat({
   )
   const { clearSelection: clearMouseSelection, hasSelection: hasMouseSelection } =
     useSelection()
-  React.useEffect(() => {
-    if (!channel.working || !terminalFocused) return
-    const interval = setInterval(() => {
-      setTitleFrame(f => (f + 1) % TITLE_ANIMATION_FRAMES.length)
-    }, 960)
-    return () =>{  clearInterval(interval) }
-  }, [channel.working, terminalFocused])
-  const titlePrefix = channel.working
-    ? (TITLE_ANIMATION_FRAMES[titleFrame] ?? '✦')
-    : '✦'
-  useTerminalTitle(
-    `${titlePrefix} 🐋 ${channel.sessionTitle}`,
-  )
 
   const handleWorkspaceResult = (result: TuiWorkspaceCommandResult): void => {
     workspaceFlowAbortRef.current = null
@@ -1992,7 +1975,6 @@ export function Chat({
     // oxlint-disable-next-line react-hooks/exhaustive-deps
     [trajectory.nodes, trajectory.counts.rows, wakeWidth],
   )
-  const [wakeTickRef, wakeTime] = useAnimationFrame(channel.working ? 120 : null)
   /**
    * The key hint beside the strip retires itself once the trajectory has been
    * opened — teaching belongs in the first minute, not on every frame forever.
@@ -2146,8 +2128,8 @@ export function Chat({
     // Same for the session tree: plain letters drive its search, clicks and
     // Enter drive its action menu.
     if (treeOpen) return
-    // Same for the settings screen: plain letters (s save / d discard) and
-    // the field draft editor belong to it alone.
+    // Same for the settings screen: field drafts and in-place editors belong to
+    // it alone.
     if (settingsOpen) return
     // Subagent dashboard or detail scene: it owns the keyboard while open.
     if (subagentDashboardOpen || subagentDetailId !== null) return
@@ -3038,7 +3020,8 @@ export function Chat({
       : channel.rows.find(row => row.id === anchorUserRowId)?.text ?? null
 
   return (
-    <Box ref={wakeTickRef} flexDirection="column" flexGrow={1} width="100%">
+    <Box flexDirection="column" flexGrow={1} width="100%">
+      <WorkingTerminalTitle working={channel.working} sessionTitle={channel.sessionTitle} />
       {!isSticky && anchorUserText && (
         <StickyPromptHeader
           text={anchorUserText}
@@ -3150,22 +3133,17 @@ export function Chat({
             onClick={() => handle?.scrollToBottom()}
           />
         )}
-        {channel.working &&
-          (channel.activityEnabled &&
-          !channel.minimal &&
-          channel.workingActivity !== undefined &&
-          channel.workingActivity.line !== '' &&
-          channel.workingActivity.phase !== 'idle' ? (
-            // The working-activity line REPLACES the CC random-verb spinner
-            // while a turn runs: the plugin's live line (thinking copy /
-            // running tool / narration) is the status, with the spinner
-            // slot's token counter preserved as a suffix. Only real activity
-            // data replaces the spinner — before the first event, or with
-            // `activity: false`, the classic spinner still renders. The line
-            // hugs the left edge (no padding) so the self-narration reads as
-            // part of the transcript, aligned with the `❯` prompt below.
-              <Box marginTop={1}>
-                <ActivityLine
+        {channel.working && (
+          // One reserved working row: ActivityLine and WorkingSpinner swap
+          // content inside a height-1 slot so the first activity snapshot
+          // cannot shove the prompt (StatusLine / Settings rule).
+          <Box marginTop={1} height={1} overflow="hidden" flexShrink={0} width="100%">
+            {channel.activityEnabled &&
+            !channel.minimal &&
+            channel.workingActivity !== undefined &&
+            channel.workingActivity.line !== '' &&
+            channel.workingActivity.phase !== 'idle' ? (
+              <ActivityLine
                   activity={channel.workingActivity}
                   activityFrames={channel.activityFrames}
                   warnPct={activityWarnPct}
@@ -3176,7 +3154,6 @@ export function Chat({
                   // inflating the reading next to a real upload number).
                   suffix={`${lastUploadTokens > 0 ? ` · ↑ ${formatTokens(lastUploadTokens)}` : ''} · ↓ ${formatTokens(Math.round(channel.responseChars / 4))} tokens`}
                 />
-              </Box>
             ) : (
               <WorkingSpinner
                 mode={channel.spinnerMode}
@@ -3188,7 +3165,9 @@ export function Chat({
                 pauseStartTimeRef={pauseStartTimeRef}
                 thinkingStatus={thinkingStatus}
               />
-            ))}
+            )}
+          </Box>
+        )}
         <GoalTodoPanel
           channel={channel}
           collapsed={todoCollapsed}
@@ -3301,7 +3280,7 @@ export function Chat({
               : {
                   band: wakeBand,
                   hint: trajectorySeen ? undefined : `${modLabel}t`,
-                  tick: Math.floor(wakeTime / 120),
+                  active: channel.working,
                 }
           }
         />
@@ -3695,18 +3674,22 @@ function NewMessagesPill({
 
 /** /model while the provider catalog is still loading (CC's LoadingState). */
 function ModelPickerLoading(): React.ReactNode {
+  const { rows: terminalRows } = useTerminalSize()
+  // Match ModelPicker listWindow budget so loading→loaded does not resize the pane.
+  const listSlots = Math.max(terminalRows - 14, 2)
   return (
     <Pane color="permission">
-      <Box flexDirection="column" gap={1}>
-        <Text bold color="permission">
-          {t('picker-title-model')}
-        </Text>
-        <LoadingState
-          message={t('model-loading')}
-          bold
-          subtitle={t('model-loading-subtitle')}
-        />
+      <Box flexDirection="column">
+        <PickerTitle>{t('picker-title-model')}</PickerTitle>
+        <Box height={listSlots} flexShrink={0}>
+          <LoadingState
+            message={t('model-loading')}
+            bold
+            subtitle={t('model-loading-subtitle')}
+          />
+        </Box>
       </Box>
+      <PickerHint text={t('hint-model-groups')} />
     </Pane>
   )
 }

@@ -15,8 +15,8 @@ export type HistoryEntry = {
 }
 
 const HISTORY_LIMIT = 200
-const LOCK_RETRY_LIMIT = 50
-const LOCK_RETRY_DELAY_MS = 5
+const LOCK_RETRY_LIMIT = 400
+const LOCK_RETRY_DELAY_MS = 8
 const STALE_LOCK_MS = 30_000
 
 function sleepSync(ms: number): void {
@@ -27,6 +27,10 @@ function removeStaleHistoryLock(): boolean {
   try {
     const ageMs = Date.now() - statSync(HISTORY_LOCK).mtimeMs
     if (ageMs < STALE_LOCK_MS) return false
+    // Re-stat immediately before removal: another writer may have acquired a
+    // fresh lock between our first stat and rmSync (TOCTOU).
+    const ageMsNow = Date.now() - statSync(HISTORY_LOCK).mtimeMs
+    if (ageMsNow < STALE_LOCK_MS) return false
     rmSync(HISTORY_LOCK, { recursive: true, force: true })
     return true
   } catch (error) {

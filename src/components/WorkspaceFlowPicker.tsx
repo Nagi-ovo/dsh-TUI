@@ -4,7 +4,7 @@ import { t } from '../i18n.js'
 import type { TuiWorkspaceChoice } from '../workspaces.js'
 import { Pane } from './design-system/Pane.js'
 import { ListItem } from './design-system/ListItem.js'
-import { HintLine } from './design-system/HintLine.js'
+import { PickerHint, PickerTitle } from './design-system/PickerChrome.js'
 
 const WINDOW = 8
 
@@ -30,18 +30,19 @@ export function WorkspaceFlowPicker({
 }): React.ReactNode {
   const start = Math.max(0, Math.min(focusIndex - Math.floor(WINDOW / 2), choices.length - WINDOW))
   const visible = choices.slice(start, start + WINDOW)
+  // Reserve a description slot for every row when any choice has one, so
+  // the flow pane height stays put while focus moves.
+  const anyDesc = choices.some(choice => choice.description !== undefined && choice.description !== '')
   return (
     <Pane color="permission">
       <Box flexDirection="column">
-        <Box marginBottom={1}>
-          <Text color="remember" bold>{title}</Text>
-        </Box>
+        <PickerTitle>{title}</PickerTitle>
         {visible.map((choice, index) => (
           <ListItem
             key={choice.id}
             isFocused={start + index === focusIndex}
             isSelected={false}
-            description={choice.description}
+            description={anyDesc ? (choice.description ?? ' ') : undefined}
             disabled={busy}
             showScrollUp={index === 0 && start > 0}
             showScrollDown={index === visible.length - 1 && start + visible.length < choices.length}
@@ -72,8 +73,7 @@ export function WorkspaceFlowPicker({
           </Box>
         )}
       </Box>
-      <Text dimColor italic>
-        <HintLine text={
+      <PickerHint text={
           busy
             ? t('workspace-flow-loading')
             : input !== null
@@ -82,7 +82,6 @@ export function WorkspaceFlowPicker({
                 ? t('workspace-flow-edit-hint')
                 : t('workspace-flow-hint')
         } />
-      </Text>
     </Pane>
   )
 }

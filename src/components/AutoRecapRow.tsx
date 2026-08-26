@@ -8,11 +8,12 @@ import { t } from '../i18n.js'
  * at the bottom of the transcript after an automatic summary on session
  * open/resume — a thin divider, then a `回顾：` line showing the session
  * tail in FULL (wraps over lines rather than truncating, like a colleague
- * catching the user up). Hover reveals the affordances on their own row;
- * click expands into the full RecapPanel; the dismiss chip hides the row
- * until the next session switch. It bows out on its own once the user
- * starts a new message (see Chat.tsx). Keyboard users keep `/recap` for
- * the full panel.
+ * catching the user up). Affordance chips live on a permanently reserved
+ * one-line slot (StatusLine / Settings rule): hover only swaps content,
+ * never grows the footer. Click expands into the full RecapPanel; the
+ * dismiss chip hides the row until the next session switch. It bows out
+ * on its own once the user starts a new message (see Chat.tsx). Keyboard
+ * users keep `/recap` for the full panel.
  */
 export function AutoRecapRow({
   summary,
@@ -46,14 +47,18 @@ export function AutoRecapRow({
       >
         {/* 默认 wrap：完整换行显示，不截断。 */}
         <Text dimColor={!hovered}>{line}</Text>
-        {hovered && (
-          <Box flexDirection="row" marginTop={1}>
-            <Text dimColor> [{t('recap-auto-hint')}]</Text>
-            <Box onClick={onDismiss}>
-              <Text color="warning"> [× {t('recap-auto-close')}]</Text>
-            </Box>
-          </Box>
-        )}
+        <Box flexDirection="row" height={1} overflow="hidden" marginTop={1} flexShrink={0}>
+          {hovered ? (
+            <>
+              <Text dimColor> [{t('recap-auto-hint')}]</Text>
+              <Box onClick={onDismiss}>
+                <Text color="warning"> [× {t('recap-auto-close')}]</Text>
+              </Box>
+            </>
+          ) : (
+            <Text> </Text>
+          )}
+        </Box>
       </Box>
     </Box>
   )

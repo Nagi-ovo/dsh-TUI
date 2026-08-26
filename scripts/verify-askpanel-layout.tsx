@@ -11,6 +11,8 @@
 export {} // 模块边界：避免顶层 await/全局名与其他 verify 脚本冲突
 
 process.env.FORCE_COLOR = '3'
+// Assert Chinese copy — pin before any src/ import (ESM hoist / locale drift).
+process.env.DSH_TUI_LANG = 'zh'
 
 const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { Chat }, { QuestionStore }, { settle, settled, sleep }] = await Promise.all([
   import('node:stream'),

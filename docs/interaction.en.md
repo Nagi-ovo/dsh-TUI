@@ -201,13 +201,18 @@ A full-screen scene (no scrollback pollution) over the whole session timeline:
 
 ### /settings editor
 
-`/settings` opens the plugin settings editor, read/edit by namespace. Editing
-is **staged**: `↑`/`↓` to move, `Enter` to expand/toggle/edit, `s` saves /
-`d` discards / `Esc` first drops dirty sections, then exits. Fields under the
-dsh-tui namespace are written to the user layer of settings.yaml and take
-**effect immediately** (`lang`, `statusBar.*`, …); namespaces without a
-declared TUI section are listed read-only and need manual edits to
-`~/.dsh/settings.yaml`.
+`/settings` opens the plugin settings editor with card sections and calm category tabs
+(General / Status bar / Shortcuts). Switching categories does not move the
+title or footer chrome. **Auto-save**: `←`/`→` change category, `↑`/`↓` move fields,
+`Enter` toggles booleans in place (`[✓]` chip) or opens an in-place select / text editor
+(confirmed edits write immediately), `Esc` exits (Esc from a group goes back, Esc in edit
+cancels the draft). Field hints live in the bottom help bar so focus never expands a list
+row; save success/failure briefly appears in the footer notice slot. Mouse: clicking a field
+row focuses it and runs that row's Enter action; hover moves focus (briefly locked after key
+nav); the wheel walks the focused row. Fields under the dsh-tui namespace are written to the
+user layer of settings.yaml and take **effect immediately** (`lang`, `statusBar.*`, …);
+namespaces without a registered TUI section are not listed in the screen — edit
+`~/.dsh/settings.yaml` manually.
 
 ### Model and preset
 
@@ -263,7 +268,7 @@ owns native scrollback and selection.
 | Single-click a rewind candidate / confirm row | List page: click selects only (stepping into the confirm state stays an explicit keyboard Enter); confirm page: clicking the message / mode row executes the rewind directly — the confirm pane is itself the confirmation layer |
 | Single-click an approval / questionnaire / plan-review / plugin dialog row | Submit that decision directly (unblock a waiting agent with the mouse) |
 | Single-click in the trajectory scene | Timeline/hotspot rows jump the cursor (a hotspot row jumps back to the timeline at that group — same as Enter; hover shows a dim ▸ pointer); tabs switch views; the sort/projection label cycles; the query line and the tab gap open the `/` search; a wave-band column (ruler included) jumps to its nearest event |
-| Single-click a /settings field / group row | Focus it and run that row's Enter action (boolean/select cycles, text enters edit, groups open); hover moves the focus (lazygit-style); the edit mode ignores the mouse entirely |
+| Single-click a /settings field row | Focus it and run that row's Enter action (boolean toggles in place, select opens an in-place picker, text enters edit); hover moves the focus (lazygit-style, briefly locked after key nav); edit/select modes ignore the mouse |
 | Single-click a session-browser confirm row | Confirm the delete/clean (same as Enter); cancelling stays on keyboard Esc |
 | Single-click a help-menu command row | Fill `/name ` into the prompt and close the help (the Tab completion's mouse equivalent) |
 | Keyboard selection extension | With a selection, `Shift+←/→/↑/↓/Home/End` extends / shrinks it (wraps across lines) |

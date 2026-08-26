@@ -251,8 +251,12 @@ export function SpinnerAnimationRow({
     <Box
       ref={viewportRef}
       flexDirection="row"
-      flexWrap="wrap"
-      marginTop={1}
+      flexWrap="nowrap"
+      // Chat owns the working-slot margin/height; keep this row flush so
+      // ActivityLine ↔ spinner swaps never grow the chrome.
+      marginTop={0}
+      height={1}
+      overflow="hidden"
       width="100%"
     >
       <SpinnerGlyph

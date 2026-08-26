@@ -235,7 +235,6 @@ export function PlanReviewPanel({
             <Box
               key={option.label}
               flexDirection="row"
-              marginTop={focused ? 1 : 0}
               onClick={() => clickOption(index)}
               onMouseEnter={() => setHoverIndex(index)}
               onMouseLeave={() => setHoverIndex(current => (current === index ? -1 : current))}
@@ -265,7 +264,9 @@ export function PlanReviewPanel({
         })}
         <Box
           flexDirection="row"
-          marginTop={inputFocused ? 1 : 0}
+          // Always reserve the gap above the feedback row — focus-dependent
+          // marginTop shoved options/hint when focus landed here.
+          marginTop={1}
           onClick={focusFeedbackRow}
           onMouseEnter={() => setHoverIndex(options.length)}
           onMouseLeave={() => setHoverIndex(current => (current === options.length ? -1 : current))}
@@ -295,12 +296,12 @@ export function PlanReviewPanel({
         </Box>
       </Box>
       {error !== null && (
-        <Box marginTop={1}>
-          <Text color="error">{error}</Text>
+        <Box height={1} overflow="hidden" marginTop={1} flexShrink={0}>
+          <Text color="error" wrap="truncate-end">{error}</Text>
         </Box>
       )}
-      <Box marginTop={1}>
-        <Text dimColor>{t('plan-review-hint')}</Text>
+      <Box height={1} overflow="hidden" marginTop={1} flexShrink={0}>
+        <Text dimColor wrap="truncate-end">{t('plan-review-hint')}</Text>
       </Box>
     </Box>
   )
