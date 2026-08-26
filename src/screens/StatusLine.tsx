@@ -92,7 +92,7 @@ function FieldLine({
             flexShrink={1}
             {...(part.id === undefined ? {} : hoverProps(part.id))}
           >
-            <Text wrap="truncate">{part.node}</Text>
+            <Text wrap="truncate-end">{part.node}</Text>
           </Box>
         </React.Fragment>
       ))}
@@ -447,7 +447,7 @@ export function StatusLine({
             </Box>
             {ctxNode !== undefined ? (
               <Box flexShrink={0} height={1} overflow="hidden" {...hoverProps('ctx')}>
-                <Text wrap="truncate">{ctxNode}</Text>
+                <Text wrap="truncate-end">{ctxNode}</Text>
               </Box>
             ) : null}
           </Box>
@@ -533,7 +533,7 @@ function buildHoverDetail(
     const free = Math.max(0, window - contextUsed)
     if (key === 'free') {
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {dim('free ')}{formatTokens(free)} · {((free / window) * 100).toFixed(1)}% {t('status-detail-of-window')}
         </Text>
       )
@@ -542,7 +542,7 @@ function buildHoverDetail(
     if (segment === undefined) return null
     const tokens = channel.contextSegments[segment.key]
     return (
-      <Text wrap="truncate">
+      <Text wrap="truncate-end">
         {dim(`${segment.labels[1] ?? segment.key} `)}{formatTokens(tokens)} ·{' '}
         {((tokens / window) * 100).toFixed(1)}% {t('status-detail-of-window')}
       </Text>
@@ -560,7 +560,7 @@ function buildHoverDetail(
         segment => `${segment.labels[1] ?? segment.key} ${formatTokens(channel.contextSegments[segment.key])}`,
       ).join(' · ')
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {((contextUsed / window) * 100).toFixed(1)}% ·{' '}
           {formatTokens(contextUsed)}/{formatTokens(window)} · {dim('free ')}{formatTokens(free)}
           {' · '}{segments}
@@ -571,7 +571,7 @@ function buildHoverDetail(
       const rate = formatCacheHitRate(usage)
       if (usage === undefined || rate === undefined) return null
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {dim('cache ')}{rate} · {dim('read ')}{formatTokens(usage.cacheRead)} ·{' '}
           {dim('write ')}{formatTokens(usage.cacheWrite)} · {dim('input ')}{formatTokens(usage.input)}
         </Text>
@@ -581,7 +581,7 @@ function buildHoverDetail(
       if (channel.tps === undefined) return null
       const stats = tpsStats(channel.tpsSamples, Date.now())
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {dim('tps ')}{Math.round(channel.tps)} · {dim('avg60 ')}{stats.avg.toFixed(1)} ·{' '}
           {dim('mean ')}{stats.mean.toFixed(1)} · {dim('p95 ')}{stats.p95.toFixed(1)}
         </Text>
@@ -590,7 +590,7 @@ function buildHoverDetail(
     case 'tokens': {
       const { input, output } = channel.tokens
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {dim('in ')}{input.toLocaleString()} · {dim('out ')}{output.toLocaleString()} ·{' '}
           {dim('total ')}{(input + output).toLocaleString()}
         </Text>
@@ -601,7 +601,7 @@ function buildHoverDetail(
       if (split === undefined) return null
       const { input, output, cacheRead } = channel.tokens
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {dim('≈¥')}{split.total.toFixed(2)} · {dim('peak ')}¥{split.peak.toFixed(2)}
           {' · '}{dim('idle ')}¥{split.idle.toFixed(2)} · {dim('in ')}{formatTokens(input)}
           {' · '}{dim('out ')}{formatTokens(output)} · {dim('cache ')}{formatTokens(cacheRead)}
@@ -613,7 +613,7 @@ function buildHoverDetail(
       const goal = channel.goal
       if (goal === undefined) return null
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {dim('goal ')}{goal.phase} · {dim('r')}{goal.roundsStarted}/{goal.maxGoalRounds} ·{' '}
           {goal.objective}
         </Text>
@@ -621,19 +621,19 @@ function buildHoverDetail(
     }
     case 'sessionId':
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {dim('# ')}{channel.agentId} · {t('status-detail-session-id')}
         </Text>
       )
     case 'cwd':
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {dim('cwd ')}{channel.displayCwd}
         </Text>
       )
     case 'title':
       return (
-        <Text wrap="truncate">
+        <Text wrap="truncate-end">
           {dim('title ')}{channel.sessionTitle}
         </Text>
       )

@@ -160,7 +160,8 @@ async function main(): Promise<void> {
   const dirty = chrome()
   check('dirty title suffix', /Settings · unsaved/.test(dirty.plain))
   check('dirty value shows On', /\bOn\b/.test(dirty.plain))
-  check('no user-star glued value', !/user\s+\*\s*On/.test(dirty.plain))
+  check('dirty star adjacent to value', /\*\s?On/.test(dirty.plain))
+  check('no override letter in row', !/\bu\s+\*/.test(dirty.plain) && !/\s+u\s+\*/.test(dirty.plain))
   check('unsaved not in list well when dirty', !dirty.unsavedInListWell)
   check('footer hint row stable when dirty', before.navY === dirty.navY && dirty.navY === ROWS - 1)
 

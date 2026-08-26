@@ -518,12 +518,18 @@ export function Settings({
     ? `${t('settings-title')} · ${statusText}`
     : t('settings-title')
 
+  const focusedState = focused !== undefined ? focusedForm?.field(focused) : undefined
   const focusedHint = focused !== undefined && focused.hint !== undefined
     ? pick(focused.hint, focused.hintDescriptions)
     : undefined
-  const fieldHintLine = focusedHint !== undefined && focused !== undefined
-    ? `${pick(focused.label, focused.descriptions)} · ${focusedHint}`
-    : ''
+  const fieldHintLine = (() => {
+    if (focused === undefined || focusedHint === undefined) return ''
+    const parts = [pick(focused.label, focused.descriptions)]
+    if (focusedState?.overridden === true) parts.push(t('settings-badge-override'))
+    if (focusedState?.invalid === true) parts.push('!')
+    parts.push(focusedHint)
+    return parts.join(' · ')
+  })()
 
   const navHint = fitHint(
     mode === 'edit'
@@ -536,12 +542,10 @@ export function Settings({
     columns,
   )
 
-  // Fixed badge slots then a value column wide enough for English / On / ctrl+p
-  // at 80 cols. Labels yield first — values never clip into Engl / ctr / user *.
-  const STAGED_SLOT = 2
-  const OVERRIDE_SLOT = 2
-  const INVALID_SLOT = 2
-  const badgeBlock = INVALID_SLOT + OVERRIDE_SLOT + STAGED_SLOT
+  // One reserved dirty-star column immediately before the value; override/source
+  // lives in the footer hint, never as a mid-row gutter badge.
+  const STAGED_SLOT = 1
+  const badgeBlock = STAGED_SLOT
   const valueColWidth = Math.max(12, Math.min(20, Math.floor(columns * 0.26)))
   const labelBudget = Math.max(8, columns - 2 - badgeBlock - valueColWidth - 2)
 
@@ -580,29 +584,24 @@ export function Settings({
             {truncateWidth(label, labelBudget)}
           </Text>
           <Box flexGrow={1} />
-          <Box flexDirection="row" flexShrink={0} height={1} overflow="hidden">
-            <Box width={INVALID_SLOT}>
-              <Text color="error">{state.invalid ? '! ' : '  '}</Text>
-            </Box>
-            <Box width={OVERRIDE_SLOT}>
-              <Text dimColor color={state.overridden ? 'suggestion' : undefined}>
-                {state.overridden ? 'u ' : '  '}
-              </Text>
-            </Box>
-            <Box width={STAGED_SLOT}>
-              <Text color={isStaged ? 'suggestion' : undefined}>
-                {isStaged ? '* ' : '  '}
-              </Text>
-            </Box>
-            <Box width={valueColWidth} flexShrink={0} justifyContent="flex-end">
-              <Text
-                color={isEditing || isFocused ? 'suggestion' : undefined}
-                dimColor={!isFocused && !isEditing && (state.text === '' || field.kind === 'boolean')}
-                wrap="truncate-end"
-              >
-                {value}
-              </Text>
-            </Box>
+          <Box
+            flexDirection="row"
+            flexShrink={0}
+            height={1}
+            overflow="hidden"
+            width={badgeBlock + valueColWidth}
+            justifyContent="flex-end"
+          >
+            <Text color={isStaged ? 'suggestion' : undefined}>
+              {isStaged ? '*' : ' '}
+            </Text>
+            <Text
+              color={isEditing || isFocused ? 'suggestion' : undefined}
+              dimColor={!isFocused && !isEditing && (state.text === '' || field.kind === 'boolean')}
+              wrap="truncate-end"
+            >
+              {value}
+            </Text>
           </Box>
         </Box>
       </ListItem>

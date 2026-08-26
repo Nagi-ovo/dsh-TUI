@@ -3,7 +3,7 @@ Settings · unsaved
 ▸ General    Status bar    Shortcuts
 ────────────────────────────────────────────────────────────────────────────────
   Language                                                               English
-❯ Fullscreen mode                                       u *                   On
+❯ Fullscreen mode                                                            *On
 
 
 
@@ -20,5 +20,5 @@ Settings · unsaved
 
 
 ────────────────────────────────────────────────────────────────────────────────
-Fullscreen mode · On: app takes the whole screen (vim/less style), in-app mouse…
+Fullscreen mode · user · On: app takes the whole screen (vim/less style), in-ap…
 ←/→ categories · Enter edit/toggle · s save · d discard · Esc discard/exit
