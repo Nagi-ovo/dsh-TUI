@@ -1,4 +1,4 @@
-Settings
+Settings · unsaved
 ────────────────────────────────────────────────────────────────────────────────
   General    Status bar  ▸ Shortcuts
 ────────────────────────────────────────────────────────────────────────────────
@@ -18,7 +18,7 @@ Settings
 
 
 
-unsaved
+
 ────────────────────────────────────────────────────────────────────────────────
 Open model picker · Open the model picker from chat.                            
 Enter to confirm · Esc to cancel                                          

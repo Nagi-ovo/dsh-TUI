@@ -1,4 +1,4 @@
-Settings
+Settings · Discarded all unsaved edits
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   General    Status bar  ▸ Shortcuts
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -34,7 +34,7 @@ Settings
 
 
 
-Discarded all unsaved edits
+
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Open model picker · Open the model picker from chat.                                                                    
 ←/→ categories · Enter edit/toggle · s save · d discard · Esc discard/exit

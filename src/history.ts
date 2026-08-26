@@ -15,8 +15,8 @@ export type HistoryEntry = {
 }
 
 const HISTORY_LIMIT = 200
-const LOCK_RETRY_LIMIT = 50
-const LOCK_RETRY_DELAY_MS = 5
+const LOCK_RETRY_LIMIT = 400
+const LOCK_RETRY_DELAY_MS = 8
 const STALE_LOCK_MS = 30_000
 
 function sleepSync(ms: number): void {

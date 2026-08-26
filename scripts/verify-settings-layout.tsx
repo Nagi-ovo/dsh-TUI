@@ -53,15 +53,20 @@ async function main(): Promise<void> {
 
   function chrome() {
     const view = viewportLines(term, ROWS)
-    const titleY = view.findIndex(l => l === 'Settings' || l.startsWith('Settings '))
+    const titleY = view.findIndex(l => /^Settings(\s|$|·)/.test(l))
     const dividers = view.map((l, y) => (/[─-]{8,}/.test(l) ? y : -1)).filter(y => y >= 0)
     const navY = view.findIndex(l => /Enter/.test(l) && /(edit|toggle|save|Esc|confirm)/i.test(l))
     const longHintInList = view.some((l, y) => y < (navY === -1 ? ROWS : navY - 1) && /vim\/less|native scrollback/.test(l))
-    return { titleY, dividers, navY, longHintInList, plain: view.join('\n') }
+    const unsavedInListWell = view.some((l, y) => y > 4 && y < (navY === -1 ? ROWS : navY) && /^\s*unsaved\s*$/.test(l))
+    return { titleY, dividers, navY, longHintInList, unsavedInListWell, plain: view.join('\n') }
   }
 
   const docs: Record<string, { revision: number; value: Record<string, unknown>; user: Record<string, unknown> }> = {
-    'dsh-tui': { revision: 1, value: { lang: 'en', fullscreen: false }, user: {} },
+    'dsh-tui': {
+      revision: 1,
+      value: { lang: 'en', fullscreen: false, statusBar: { model: true }, keymap: { openModelPicker: 'ctrl+p' } },
+      user: {},
+    },
   }
   const host = {
     listNamespaces: () => Object.entries(docs).map(([ns, doc]) => ({
@@ -146,6 +151,25 @@ async function main(): Promise<void> {
   check('long hint still not in list after focus', !after.longHintInList)
   check('no Session category', !/\bSession\b/.test(after.plain))
   check('boolean shows Off not false', /\bOff\b/.test(after.plain) && !/\bfalse\b/.test(after.plain))
+  check('values show English not clipped', /\bEnglish\b/.test(before.plain))
+  check('unsaved not floating in list well', !before.unsavedInListWell && !after.unsavedInListWell)
+
+  // Toggle dirty: title carries unsaved, value shows On without user* glue.
+  stdin.write('\r')
+  await sleep(80)
+  const dirty = chrome()
+  check('dirty title suffix', /Settings · unsaved/.test(dirty.plain))
+  check('dirty value shows On', /\bOn\b/.test(dirty.plain))
+  check('no user-star glued value', !/user\s+\*\s*On/.test(dirty.plain))
+  check('unsaved not in list well when dirty', !dirty.unsavedInListWell)
+  check('footer hint row stable when dirty', before.navY === dirty.navY && dirty.navY === ROWS - 1)
+
+  stdin.write('\x1b[C')
+  await sleep(120)
+  stdin.write('\x1b[C')
+  await sleep(120)
+  const shortcuts = chrome()
+  check('shortcut value readable', /ctrl\+p/i.test(shortcuts.plain))
 
   instance.unmount()
   term.dispose()

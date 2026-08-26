@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-08-26T04:12:24.531Z",
+  "capturedAt": "2026-08-26T04:28:58.640Z",
   "after": {
     "80x24": {
       "size": {
@@ -30,6 +30,7 @@
           ],
           "navY": 23,
           "nonBlank": 9,
+          "unsavedInListWell": false,
           "ok": true
         },
         "focus_move": {
@@ -41,6 +42,7 @@
           ],
           "navY": 23,
           "nonBlank": 9,
+          "unsavedInListWell": false,
           "ok": true
         },
         "toggle_dirty": {
@@ -51,7 +53,8 @@
             21
           ],
           "navY": 23,
-          "nonBlank": 10,
+          "nonBlank": 9,
+          "unsavedInListWell": false,
           "ok": true
         },
         "category_status": {
@@ -62,7 +65,8 @@
             21
           ],
           "navY": 23,
-          "nonBlank": 9,
+          "nonBlank": 8,
+          "unsavedInListWell": false,
           "ok": true
         },
         "category_shortcuts": {
@@ -73,7 +77,8 @@
             21
           ],
           "navY": 23,
-          "nonBlank": 9,
+          "nonBlank": 8,
+          "unsavedInListWell": false,
           "ok": true
         },
         "edit_shortcut": {
@@ -84,7 +89,8 @@
             21
           ],
           "navY": 23,
-          "nonBlank": 9,
+          "nonBlank": 8,
+          "unsavedInListWell": false,
           "ok": true
         },
         "discard": {
@@ -95,7 +101,8 @@
             21
           ],
           "navY": 23,
-          "nonBlank": 9,
+          "nonBlank": 8,
+          "unsavedInListWell": false,
           "ok": true
         }
       }
@@ -129,6 +136,7 @@
           ],
           "navY": 39,
           "nonBlank": 9,
+          "unsavedInListWell": false,
           "ok": true
         },
         "focus_move": {
@@ -140,6 +148,7 @@
           ],
           "navY": 39,
           "nonBlank": 9,
+          "unsavedInListWell": false,
           "ok": true
         },
         "toggle_dirty": {
@@ -150,7 +159,8 @@
             37
           ],
           "navY": 39,
-          "nonBlank": 10,
+          "nonBlank": 9,
+          "unsavedInListWell": false,
           "ok": true
         },
         "category_status": {
@@ -161,7 +171,8 @@
             37
           ],
           "navY": 39,
-          "nonBlank": 9,
+          "nonBlank": 8,
+          "unsavedInListWell": false,
           "ok": true
         },
         "category_shortcuts": {
@@ -172,7 +183,8 @@
             37
           ],
           "navY": 39,
-          "nonBlank": 9,
+          "nonBlank": 8,
+          "unsavedInListWell": false,
           "ok": true
         },
         "edit_shortcut": {
@@ -183,7 +195,8 @@
             37
           ],
           "navY": 39,
-          "nonBlank": 9,
+          "nonBlank": 8,
+          "unsavedInListWell": false,
           "ok": true
         },
         "discard": {
@@ -194,7 +207,8 @@
             37
           ],
           "navY": 39,
-          "nonBlank": 9,
+          "nonBlank": 8,
+          "unsavedInListWell": false,
           "ok": true
         }
       }

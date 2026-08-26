@@ -1,9 +1,9 @@
-Settings
+Settings · unsaved
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ▸ General    Status bar    Shortcuts
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   Language                                                                                                       English
-❯ Fullscreen mode                                                                                              user * On
+❯ Fullscreen mode                                                                               u *                   On
 
 
 
@@ -34,7 +34,7 @@ Settings
 
 
 
-unsaved
+
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 Fullscreen mode · On: app takes the whole screen (vim/less style), in-app mouse. Off: native scrollback; full-page scre…
 ←/→ categories · Enter edit/toggle · s save · d discard · Esc discard/exit

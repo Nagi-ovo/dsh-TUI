@@ -23,11 +23,14 @@ mkdirSync(ART, { recursive: true })
 type Size = { cols: number; rows: number; tag: string }
 
 function chromePins(view: string[], rows: number) {
-  const titleY = view.findIndex(l => l === 'Settings' || l.startsWith('Settings '))
+  const titleY = view.findIndex(l => /^Settings(\s|$|·)/.test(l))
   const dividers = view.map((l, y) => (/[─-]{8,}/.test(l) ? y : -1)).filter(y => y >= 0)
   const navY = view.findIndex(l => /Enter/.test(l) && /(edit|toggle|save|Esc|confirm)/i.test(l))
   const nonBlank = view.filter(l => l.trim().length > 0).length
-  return { titleY, dividers, navY, nonBlank, ok: titleY === 0 && navY === rows - 1 && dividers.length >= 2 }
+  const unsavedInListWell = view.slice(0, navY === -1 ? rows : navY).some((l, y) =>
+    y > 4 && /^\s*unsaved\s*$/.test(l),
+  )
+  return { titleY, dividers, navY, nonBlank, unsavedInListWell, ok: titleY === 0 && navY === rows - 1 && dividers.length >= 2 && !unsavedInListWell }
 }
 
 async function captureAfter(size: Size): Promise<Record<string, unknown>> {

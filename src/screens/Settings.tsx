@@ -514,12 +514,15 @@ export function Settings({
     : notice?.tone === 'success' ? 'success'
       : anyDirty ? 'suggestion'
         : undefined
+  const titleText = statusText !== ''
+    ? `${t('settings-title')} · ${statusText}`
+    : t('settings-title')
 
   const focusedHint = focused !== undefined && focused.hint !== undefined
     ? pick(focused.hint, focused.hintDescriptions)
     : undefined
   const fieldHintLine = focusedHint !== undefined && focused !== undefined
-    ? truncateWidth(`${pick(focused.label, focused.descriptions)} · ${focusedHint}`, columns)
+    ? `${pick(focused.label, focused.descriptions)} · ${focusedHint}`
     : ''
 
   const navHint = fitHint(
@@ -533,27 +536,14 @@ export function Settings({
     columns,
   )
 
-  // Right-align values in a shared column so On/Off / labels don't dance
-  // as focus moves between short and long values (CC /config taste).
-  // Always reserve room for the longest badge stack (`invalid` / `user` / `*`)
-  // so staging a toggle cannot widen the column and shove every value left.
-  // Committed values only — live edit drafts truncate inside the fixed column
-  // instead of growing it and shoving every label.
-  const badgeBudget = stringWidth(`${t('settings-field-invalid')} ${t('settings-badge-override')} * `)
-  const valueColWidth = (() => {
-    if (activeCategory === undefined || focusedForm === undefined) return 10
-    let widest = 4
-    for (const field of focusable) {
-      const state = focusedForm.field(field)
-      const value = displayValue(field, state.text, {
-        editing: false,
-        secretConfigured: secrets.get(`${activeCategory.ns}:${field.path.join('.')}`) === true,
-      })
-      widest = Math.max(widest, badgeBudget + stringWidth(value))
-    }
-    // Leave room for ❯ + label; never let the value column eat the name.
-    return Math.max(8, Math.min(widest, Math.max(8, columns - 24)))
-  })()
+  // Fixed badge slots then a value column wide enough for English / On / ctrl+p
+  // at 80 cols. Labels yield first — values never clip into Engl / ctr / user *.
+  const STAGED_SLOT = 2
+  const OVERRIDE_SLOT = 2
+  const INVALID_SLOT = 2
+  const badgeBlock = INVALID_SLOT + OVERRIDE_SLOT + STAGED_SLOT
+  const valueColWidth = Math.max(12, Math.min(20, Math.floor(columns * 0.26)))
+  const labelBudget = Math.max(8, columns - 2 - badgeBlock - valueColWidth - 2)
 
   const renderFieldRow = (field: TuiSettingsField, absoluteIndex: number): React.ReactNode => {
     if (activeCategory === undefined) return null
@@ -569,10 +559,7 @@ export function Settings({
       cursor: editing?.cursor,
       secretConfigured: secrets.get(`${ns}:${field.path.join('.')}`) === true,
     })
-    const badges: string[] = []
-    if (state.invalid) badges.push(t('settings-field-invalid'))
-    if (state.overridden) badges.push(t('settings-badge-override'))
-    if (form?.isStaged(field) === true && !isEditing) badges.push('*')
+    const isStaged = form?.isStaged(field) === true && !isEditing
     const hoverable = mode === 'list'
     return (
       <ListItem
@@ -584,30 +571,38 @@ export function Settings({
           activateField(ns, field)
         } : undefined}
       >
-        <Box
-          flexGrow={1}
-          height={1}
-          overflow="hidden"
-          onMouseEnter={hoverable ? () => {
-            if (Date.now() < hoverLockRef.current) return
-            setFocusIndex(absoluteIndex)
-          } : undefined}
-        >
-          <Text bold={isFocused || isEditing} wrap="truncate-end">{label}</Text>
+        <Box flexDirection="row" flexGrow={1} height={1} overflow="hidden" width="100%">
+          <Text
+            bold={isFocused || isEditing}
+            color={isFocused || isEditing ? 'suggestion' : undefined}
+            wrap="truncate-end"
+          >
+            {truncateWidth(label, labelBudget)}
+          </Text>
           <Box flexGrow={1} />
-          <Box width={valueColWidth} flexShrink={0} height={1} overflow="hidden" justifyContent="flex-end">
-            {badges.length > 0 && (
-              <Text color={state.invalid ? 'error' : 'suggestion'} dimColor={!state.invalid}>
-                {badges.join(' ')}{' '}
+          <Box flexDirection="row" flexShrink={0} height={1} overflow="hidden">
+            <Box width={INVALID_SLOT}>
+              <Text color="error">{state.invalid ? '! ' : '  '}</Text>
+            </Box>
+            <Box width={OVERRIDE_SLOT}>
+              <Text dimColor color={state.overridden ? 'suggestion' : undefined}>
+                {state.overridden ? 'u ' : '  '}
               </Text>
-            )}
-            <Text
-              color={isEditing || isFocused ? 'suggestion' : undefined}
-              dimColor={!isFocused && !isEditing && (state.text === '' || field.kind === 'boolean')}
-              wrap="truncate-end"
-            >
-              {value}
-            </Text>
+            </Box>
+            <Box width={STAGED_SLOT}>
+              <Text color={isStaged ? 'suggestion' : undefined}>
+                {isStaged ? '* ' : '  '}
+              </Text>
+            </Box>
+            <Box width={valueColWidth} flexShrink={0} justifyContent="flex-end">
+              <Text
+                color={isEditing || isFocused ? 'suggestion' : undefined}
+                dimColor={!isFocused && !isEditing && (state.text === '' || field.kind === 'boolean')}
+                wrap="truncate-end"
+              >
+                {value}
+              </Text>
+            </Box>
           </Box>
         </Box>
       </ListItem>
@@ -623,9 +618,9 @@ export function Settings({
     return (
       <Box flexDirection="column" width={columns} height={rows}>
         <Box height={1} overflow="hidden">
-          <Text bold>{t('settings-title')}</Text>
+          <Text bold color={statusText !== '' ? statusTone : undefined} wrap="truncate-end">{titleText}</Text>
           <Box flexGrow={1} />
-          <Text dimColor>{pick(editing.field.label, editing.field.descriptions)}</Text>
+          <Text dimColor wrap="truncate-end">{pick(editing.field.label, editing.field.descriptions)}</Text>
         </Box>
         {rules.has(0) && <Divider />}
         <Box flexDirection="column" height={listHeight + extraLines + (rules.has(1) ? 1 : 0)} overflow="hidden">
@@ -644,11 +639,11 @@ export function Settings({
           />
         </Box>
         <Box height={1} overflow="hidden">
-          {statusText !== '' && <Text color={statusTone}>{statusText}</Text>}
+          <Text> </Text>
         </Box>
         {rules.has(2) && <Divider />}
         <Box height={1} overflow="hidden">
-          <Text dimColor>{fieldHintLine}</Text>
+          <Text dimColor wrap="truncate-end">{fieldHintLine !== '' ? truncateWidth(fieldHintLine, columns) : ' '}</Text>
         </Box>
         <Box height={1} overflow="hidden">
           <Text dimColor italic><HintLine text={navHint} /></Text>
@@ -659,8 +654,8 @@ export function Settings({
 
   return (
     <Box flexDirection="column" width={columns} height={rows} overflow="hidden">
-      <Box flexShrink={0} height={1} overflow="hidden">
-        <Text bold>{t('settings-title')}</Text>
+      <Box flexShrink={0} height={1} overflow="hidden" flexDirection="row">
+        <Text bold color={statusText !== '' ? statusTone : undefined} wrap="truncate-end">{titleText}</Text>
         <Box flexGrow={1} />
         {host === undefined && <Text color="warning">{t('settings-unavailable')}</Text>}
         {activeCategory !== undefined && forms.get(activeCategory.ns)?.namespace?.applies === 'restart' && (
@@ -755,11 +750,7 @@ export function Settings({
         </ink-box>
       </Box>
       <Box flexShrink={0} height={1} overflow="hidden">
-        {statusText !== '' ? (
-          <Text color={statusTone === 'error' ? 'error' : statusTone === 'success' ? 'success' : statusTone}>{statusText}</Text>
-        ) : (
-          <Text> </Text>
-        )}
+        <Text> </Text>
       </Box>
       {rules.has(2) && (
         <Box flexShrink={0}>
@@ -767,10 +758,10 @@ export function Settings({
         </Box>
       )}
       <Box flexShrink={0} height={1} overflow="hidden">
-        <Text dimColor>{fieldHintLine || ' '}</Text>
+        <Text dimColor wrap="truncate-end">{fieldHintLine !== '' ? truncateWidth(fieldHintLine, columns) : ' '}</Text>
       </Box>
       <Box flexShrink={0} height={1} overflow="hidden">
-        <Text dimColor italic><HintLine text={navHint} /></Text>
+        <Text dimColor italic wrap="truncate-end"><HintLine text={navHint} /></Text>
       </Box>
     </Box>
   )

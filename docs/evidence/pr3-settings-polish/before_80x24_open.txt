@@ -1,14 +1,1 @@
-────────────────────────────────────────────────────────────────────────────────
-dsh-tui (dsh-tui) [applies on restart]
-❯Languageen
-               UI language for the whole interface — applies immediately and is
-           saved.
-
-  Fullscreen mode                                                          false
-  Status bar                                                                   ›
-  Shortcuts                                                                    ›
-  Session                                                                      ›
-
-Other settings namespaces (read-only)
-  orphan-ns  {"nested":{"a":1,"b":2}}
-  No TUI section for these namespaces yet — edit ~/.dsh/settings.yaml by hand
+# before frame missing — run capture-settings-baseline on pre-polish tree
