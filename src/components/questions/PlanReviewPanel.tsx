@@ -264,7 +264,9 @@ export function PlanReviewPanel({
         })}
         <Box
           flexDirection="row"
-          marginTop={inputFocused ? 1 : 0}
+          // Always reserve the gap above the feedback row — focus-dependent
+          // marginTop shoved options/hint when focus landed here.
+          marginTop={1}
           onClick={focusFeedbackRow}
           onMouseEnter={() => setHoverIndex(options.length)}
           onMouseLeave={() => setHoverIndex(current => (current === options.length ? -1 : current))}

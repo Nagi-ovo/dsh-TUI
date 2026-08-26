@@ -18,6 +18,7 @@ import {
   renderMiniContextBar,
   renderTpsGauge,
   renderTpsSparkline,
+  renderTpsTrackIdle,
   speedColor,
   tpsStats,
 } from './StatusMetrics.js'
@@ -224,6 +225,9 @@ export function StatusLine({
 
   let tpsPart: FieldPart | undefined
   if (statusBar.tps && channel.tps !== undefined) {
+    // Always render a fixed-width glyph track + numeric suffix so working↔idle
+    // and sample growth cannot shove neighboring status fields horizontally.
+    const tpsLabel = `${Math.round(channel.tps)} tps`
     if (channel.working && channel.tpsSamples.length === 0) {
       tpsPart = {
         key: 'tps',
@@ -231,7 +235,7 @@ export function StatusLine({
         node: (
           <Text>
             {renderTpsGauge(channel.tps, channel.tps)}{' '}
-            <Text dimColor>{Math.round(channel.tps)} tps</Text>
+            <Text dimColor>{tpsLabel}</Text>
           </Text>
         ),
       }
@@ -253,7 +257,11 @@ export function StatusLine({
       tpsPart = {
         key: 'tps',
         id: 'tps',
-        node: <Text dimColor>{Math.round(channel.tps)} t/s</Text>,
+        node: (
+          <Text dimColor>
+            {renderTpsTrackIdle()} {tpsLabel}
+          </Text>
+        ),
       }
     }
   }
@@ -433,25 +441,26 @@ export function StatusLine({
         ) : null}
         {/* Row 2: optional status fields — every field is independently gated. */}
         {hasStatusFields ? statusBar.compact ? (
-          <Box flexDirection="row" justifyContent="space-between" gap={2}>
-            <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
+          <Box flexDirection="row" justifyContent="space-between" gap={2} height={1} overflow="hidden">
+            <Box flexGrow={1} flexShrink={1} flexDirection="row" height={1} overflow="hidden">
               <FieldLine parts={compactFields} hoverProps={hoverProps} />
             </Box>
             {ctxNode !== undefined ? (
-              <Box flexShrink={0} {...hoverProps('ctx')}>
+              <Box flexShrink={0} height={1} overflow="hidden" {...hoverProps('ctx')}>
                 <Text wrap="truncate">{ctxNode}</Text>
               </Box>
             ) : null}
           </Box>
         ) : (
-          <Box flexDirection="row" justifyContent="space-between" gap={2}>
-            <Box flexGrow={1} flexShrink={1} flexDirection="row" overflow="hidden">
+          <Box flexDirection="row" justifyContent="space-between" gap={2} height={1} overflow="hidden">
+            <Box flexGrow={1} flexShrink={1} flexDirection="row" height={1} overflow="hidden">
               <FieldLine parts={fullLeftFields} hoverProps={hoverProps} />
             </Box>
             <Box
               justifyContent="flex-end"
               flexShrink={2}
               flexDirection="row"
+              height={1}
               overflow="hidden"
             >
               <FieldLine parts={rightFields} hoverProps={hoverProps} />

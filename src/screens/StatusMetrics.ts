@@ -313,13 +313,22 @@ export function renderTpsGauge(tps: number, peak: number): string {
   return `▕${speedColor(tps, fill)}${`\x1b[2m${track}\x1b[22m`}▏`
 }
 
-/** Min-max normalized 12-sample sparkline: `▁▄▇▅▂▁▇█▅▃▆▇`.
- * @param samples - Turn TPS samples; only the last 12 are rendered.
+/** Fixed glyph cells inside the TPS track (matches {@link renderTpsGauge}). */
+export const TPS_TRACK_LEN = GAUGE_LEN
+/** Visible width including gauge brackets `▕`/`▏`. */
+export const TPS_TRACK_DISPLAY_LEN = GAUGE_LEN + 2
+
+/** Min-max normalized sparkline inside gauge brackets: `▕▁▄▇▅▂▁▇█▅▃▆▏`.
+ * Always {@link TPS_TRACK_LEN} fill cells so working gauge ↔ idle sparkline
+ * share display width and cannot shove StatusLine siblings.
+ * @param samples - Turn TPS samples; only the last {@link TPS_TRACK_LEN} render.
  * @returns The ANSI sparkline string.
  */
 export function renderTpsSparkline(samples: readonly { tps: number }[]): string {
-  const vals = samples.slice(-12)
-  if (vals.length === 0) return '\x1b[2m' + TRACK.repeat(12) + '\x1b[22m'
+  const vals = samples.slice(-TPS_TRACK_LEN)
+  if (vals.length === 0) {
+    return `▕\x1b[2m${TRACK.repeat(TPS_TRACK_LEN)}\x1b[22m▏`
+  }
   let min = Infinity
   let max = 0
   for (const { tps } of vals) {
@@ -327,7 +336,7 @@ export function renderTpsSparkline(samples: readonly { tps: number }[]): string 
     if (tps > max) max = tps
   }
   const range = max - min
-  return vals
+  const glyphs = vals
     .map(({ tps }) => {
       const norm =
         range < 1e-6
@@ -338,6 +347,16 @@ export function renderTpsSparkline(samples: readonly { tps: number }[]): string 
       return speedColor(tps, BLOCKS[norm] ?? '▁')
     })
     .join('')
+  // Leading pad (dim track) when fewer than TPS_TRACK_LEN samples — right-align
+  // the live history so growth never expands the field to the right.
+  const pad = Math.max(0, TPS_TRACK_LEN - vals.length)
+  const fill = (pad > 0 ? `\x1b[2m${TRACK.repeat(pad)}\x1b[22m` : '') + glyphs
+  return `▕${fill}▏`
+}
+
+/** Empty TPS track matching gauge/sparkline bracket width. */
+export function renderTpsTrackIdle(): string {
+  return `▕\x1b[2m${TRACK.repeat(TPS_TRACK_LEN)}\x1b[22m▏`
 }
 
 /** Rolling stats: 60s average, all-time mean and p95.

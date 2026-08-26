@@ -420,7 +420,7 @@ dsh-tui
   首次使用前条旁有 `ctrl+t` 提示，打开过轨迹后永久退休。
 
 **TPS 仪表**（`statusBar.tps`，默认关）
-流式中显示 1/8 格实时 gauge + `N tps`；回合结束后显示最近 12 样本 min-max sparkline。
+流式中显示 1/8 格实时 gauge + `N tps`；回合结束后显示最近 11 样本 min-max sparkline（与 gauge 同宽括号轨道，避免 StatusLine 左右挤动）。
 速度语义色：**≥50 绿 / ≥20 黄 / <20 红**。
 
 ### 5.3 /settings 设置编辑器

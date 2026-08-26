@@ -354,7 +354,9 @@ export function AskUserQuestionPanel({
   const renderInputRow = (): React.ReactNode => (
     <Box
       flexDirection="row"
-      marginTop={inputFocused ? 1 : 0}
+      // Always reserve the gap above the custom-input row — focus-dependent
+      // marginTop shoved the list and hint when Tab/↓ landed on this row.
+      marginTop={1}
       onClick={focusInputRow}
       onMouseEnter={() => setHoverIndex(options.length)}
       onMouseLeave={() => setHoverIndex(current => (current === options.length ? -1 : current))}
