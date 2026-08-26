@@ -155,7 +155,7 @@ async function main(): Promise<void> {
   )
   await sleep(250)
   const afterRemount = frame(second.term)
-  check('remount renders settings', /^Settings/.test(afterRemount.split('\n')[0] ?? ''))
+  check('remount renders settings', /^Plugin settings/.test(afterRemount.split('\n')[0] ?? ''))
   check('saved value survives remount', docs['dsh-tui']?.value.fullscreen === true)
   check('remount shows checked chip', /\[\s*✓\s*\]/.test(afterRemount) || /\[\s*✓\]/.test(afterRemount), afterRemount.slice(0, 240))
 

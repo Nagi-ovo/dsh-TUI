@@ -50,7 +50,7 @@ async function main(): Promise<void> {
 
   function chrome() {
     const view = viewportLines(term, ROWS)
-    const titleY = view.findIndex(l => /^Settings(\s|$|›)/.test(l))
+    const titleY = view.findIndex(l => /^Plugin settings(\s|$|›)/.test(l))
     const helpY = view.findIndex(l => /auto-saves|confirm & save/i.test(l) && /Esc/.test(l))
     const noticeY = view.findIndex((l, y) => y > titleY && y < helpY && (l.trim() === '' || /Saved|✓|✗/.test(l)))
     const cardTop = view.findIndex(l => /╭/.test(l))
@@ -177,11 +177,13 @@ async function main(): Promise<void> {
 
   stdin.write('\x1b[B')
   await sleep(80)
-  stdin.write('\r')
+  stdin.write('\x1b[B')
   await sleep(80)
+  stdin.write('\r')
+  await sleep(120)
+  check(await settled(() => /Open model picker/.test(viewportLines(term, ROWS).join('\n'))), 'shortcuts group opens')
   const shortcuts = chrome()
-  check('shortcuts group opens', /Open model picker/.test(shortcuts.plain))
-  check('shortcut value readable', /ctrl\+p/i.test(shortcuts.plain))
+  check(/ctrl\+p/i.test(shortcuts.plain), 'shortcut value readable')
 
   stdin.write('\r')
   await sleep(80)

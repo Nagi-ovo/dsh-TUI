@@ -577,7 +577,7 @@ const dict = {
   'resume-title': { zh: '恢复会话', en: 'Resume session' },
 
   // ── screens/Settings.tsx (/settings, issue #165) ───────────────────
-  'settings-title': { zh: '设置', en: 'Settings' },
+  'settings-title': { zh: '插件设置', en: 'Plugin settings' },
   'settings-unavailable': { zh: '设置服务未挂载——只读', en: 'settings service absent — read-only' },
   'settings-empty': { zh: '没有可配置的插件设置（尚无插件注册设置区块）', en: 'No configurable plugin settings (no plugin has registered a section)' },
   'settings-group-empty': { zh: '此分组没有可配置字段', en: 'No configurable fields in this group' },

@@ -20,7 +20,7 @@ mkdirSync(ART, { recursive: true })
 type Size = { cols: number; rows: number; tag: string }
 
 function chromePins(view: string[], rows: number) {
-  const titleY = view.findIndex(l => /^Settings(\s|$|›)/.test(l))
+  const titleY = view.findIndex(l => /^Plugin settings(\s|$|›)/.test(l))
   const helpY = view.findIndex(l => /auto-saves|Esc exit/i.test(l))
   const cardTop = view.findIndex(l => /╭/.test(l))
   const nonBlank = view.filter(l => l.trim().length > 0).length
