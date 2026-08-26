@@ -43,8 +43,8 @@ export function ColorPicker({
           selectedValue={currentColor === '' ? undefined : currentColor}
           onPick={onPick ? index => onPick(index) : undefined}
         />
-        <PickerHint text={t('hint-confirm-exit')} />
       </Box>
+      <PickerHint text={t('hint-confirm-exit')} />
     </Pane>
   )
 }

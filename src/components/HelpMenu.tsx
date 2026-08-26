@@ -146,7 +146,7 @@ export function HelpMenu({
           </ScrollBox>
         </Box>
       )}
-      <Box paddingX={2} flexShrink={0}>
+      <Box paddingX={2} flexShrink={0} height={1} overflow="hidden">
         <Text dimColor wrap="truncate-end">{t('help-scroll-hint')}</Text>
       </Box>
     </Box>
@@ -167,6 +167,8 @@ function HelpCommandRow({
   return (
     <Box
       flexShrink={0}
+      height={1}
+      overflow="hidden"
       onClick={clickable ? () => onPick(command.name) : undefined}
       onMouseEnter={clickable ? (): void => setHovered(true) : undefined}
       onMouseLeave={clickable ? (): void => setHovered(false) : undefined}

@@ -34,15 +34,17 @@ export function LoadingState({
   const [ref, time] = useAnimationFrame(80)
   const frame = Math.floor(time / 80) % SPINNER_FRAMES.length
   return (
-    <Box ref={ref} flexDirection="column">
-      <Box flexDirection="row">
+    <Box ref={ref} flexDirection="column" flexShrink={0}>
+      <Box flexDirection="row" height={1} flexShrink={0} overflow="hidden">
         <SpinnerGlyph frame={frame} messageColor="text" time={time} />
-        <Text bold={bold} dimColor={dimColor}>
+        <Text bold={bold} dimColor={dimColor} wrap="truncate-end">
           {' '}
           {message}
         </Text>
       </Box>
-      {subtitle && <Text dimColor>{subtitle}</Text>}
+      <Box height={1} flexShrink={0} overflow="hidden">
+        <Text dimColor wrap="truncate-end">{subtitle ?? ' '}</Text>
+      </Box>
     </Box>
   )
 }

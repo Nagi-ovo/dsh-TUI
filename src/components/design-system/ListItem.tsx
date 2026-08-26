@@ -108,6 +108,7 @@ export function ListItem({
     <Box
       ref={cursorRef}
       flexDirection="column"
+      flexShrink={0}
       onClick={clickable ? onClick : undefined}
       onMouseEnter={clickable ? () => setHovered(true) : undefined}
       onMouseLeave={clickable ? () => setHovered(false) : undefined}
@@ -131,8 +132,8 @@ export function ListItem({
         {isSelected && !disabled && <Text color="success">{TICK}</Text>}
       </Box>
       {description && (
-        <Box paddingLeft={2}>
-          <Text color="inactive" wrap="truncate">
+        <Box paddingLeft={2} height={1} flexShrink={0} overflow="hidden">
+          <Text color="inactive" wrap="truncate-end">
             {flattenLine(description)}
           </Text>
         </Box>

@@ -1,0 +1,20 @@
+
+────────────────────────────────────────────────────────────────────────────────
+  Model
+
+  ✢  Loading models
+  Querying the provider…
+
+
+
+
+  Enter to view models · Esc to exit
+
+
+
+
+
+
+
+
+

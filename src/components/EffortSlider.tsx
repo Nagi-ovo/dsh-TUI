@@ -60,8 +60,8 @@ export function EffortSlider({
         <Box height={1} overflow="hidden">
           <Text dimColor wrap="truncate-end">{focused?.description ?? ' '}</Text>
         </Box>
-        <PickerHint text={t('hint-adjust-done')} />
       </Box>
+      <PickerHint text={t('hint-adjust-done')} />
     </Pane>
   )
 }

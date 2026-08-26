@@ -99,7 +99,7 @@ import { readTrajectorySeen, writeTrajectorySeen } from '../trajectoryPrefs.js'
 import type { SessionEvent } from '../dsh-adapter/types.js'
 import { LoadingState } from '../components/design-system/LoadingState.js'
 import { Pane } from '../components/design-system/Pane.js'
-import { PickerTitle } from '../components/design-system/PickerChrome.js'
+import { PickerHint, PickerTitle } from '../components/design-system/PickerChrome.js'
 import { loadHistory, type HistoryEntry } from '../history.js'
 import { formatLoadedContextReport } from '../utils/loaded-context.js'
 import {
@@ -3694,16 +3694,22 @@ function NewMessagesPill({
 
 /** /model while the provider catalog is still loading (CC's LoadingState). */
 function ModelPickerLoading(): React.ReactNode {
+  const { rows: terminalRows } = useTerminalSize()
+  // Match ModelPicker listWindow budget so loading→loaded does not resize the pane.
+  const listSlots = Math.max(terminalRows - 14, 2)
   return (
     <Pane color="permission">
-      <Box flexDirection="column" gap={1}>
+      <Box flexDirection="column">
         <PickerTitle>{t('picker-title-model')}</PickerTitle>
-        <LoadingState
-          message={t('model-loading')}
-          bold
-          subtitle={t('model-loading-subtitle')}
-        />
+        <Box height={listSlots} flexShrink={0}>
+          <LoadingState
+            message={t('model-loading')}
+            bold
+            subtitle={t('model-loading-subtitle')}
+          />
+        </Box>
       </Box>
+      <PickerHint text={t('hint-model-groups')} />
     </Pane>
   )
 }

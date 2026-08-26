@@ -46,8 +46,8 @@ export function ThinkingToggle({
           visibleOptionCount={2}
           onPick={onPick === undefined ? undefined : (index) => onPick(index)}
         />
-        <PickerHint text={t('hint-confirm-exit')} />
       </Box>
+      <PickerHint text={t('hint-confirm-exit')} />
     </Pane>
   )
 }

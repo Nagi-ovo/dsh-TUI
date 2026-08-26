@@ -64,7 +64,8 @@ export function ModelPicker(props:
   const rowHeight = inGroups || modelsHaveDesc ? 2 : 1
   const rowHeights = (inGroups ? props.groups : props.models).map(() => rowHeight)
   const rows = inGroups ? props.groups : props.models
-  const { start, end } = listWindow(rowHeights, props.focusIndex, Math.max(terminalRows - 14, 2))
+  const listSlots = Math.max(terminalRows - 14, 2)
+  const { start, end } = listWindow(rowHeights, props.focusIndex, listSlots)
   const hint = inGroups
     ? t('hint-model-groups')
     : props.showBack ? t('hint-model-back') : t('hint-confirm-exit')
@@ -74,7 +75,8 @@ export function ModelPicker(props:
         <PickerTitle>
           {inGroups || props.groupLabel === undefined ? t('picker-title-model') : props.groupLabel}
         </PickerTitle>
-        {rows.slice(start, end).map((row, index) => {
+        <Box flexDirection="column" minHeight={listSlots} flexShrink={0}>
+          {rows.slice(start, end).map((row, index) => {
           const absoluteIndex = start + index
           return inGroups ? (
             <ListItem
@@ -106,6 +108,7 @@ export function ModelPicker(props:
             </ListItem>
           )
         })}
+        </Box>
       </Box>
       <PickerHint text={hint} />
     </Pane>

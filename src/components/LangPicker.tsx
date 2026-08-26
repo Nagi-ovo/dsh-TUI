@@ -34,8 +34,8 @@ export function LangPicker({
           selectedValue={currentLang}
           onPick={onPick ? index => onPick(index) : undefined}
         />
-        <PickerHint text={t('hint-confirm-exit')} />
       </Box>
+      <PickerHint text={t('hint-confirm-exit')} />
     </Pane>
   )
 }
