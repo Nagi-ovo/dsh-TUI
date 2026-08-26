@@ -97,15 +97,15 @@ export function SuggestionCard({
           <Text color={borderColor}>│</Text>
         </Box>
       ))}
-      {footer ? (
-        <Box flexDirection="row" width="100%">
-          <Text color={borderColor}>│</Text>
-          <Box flexGrow={1} minWidth={0}>
-            <Text dimColor wrap="truncate-end"> {footer}</Text>
-          </Box>
-          <Text color={borderColor}>│</Text>
+      {/* Always one footer row so crossing the window boundary (scroll
+          indicators appearing/disappearing) cannot change card height. */}
+      <Box flexDirection="row" width="100%" height={1} overflow="hidden" flexShrink={0}>
+        <Text color={borderColor}>│</Text>
+        <Box flexGrow={1} minWidth={0}>
+          <Text dimColor wrap="truncate-end">{footer ? ` ${footer}` : ' '}</Text>
         </Box>
-      ) : null}
+        <Text color={borderColor}>│</Text>
+      </Box>
       <Text color={borderColor} wrap="truncate-end">{`╰${'─'.repeat(inner)}╯`}</Text>
     </ink-box>
   )
