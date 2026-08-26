@@ -1,9 +1,10 @@
 /**
- * MiniWake animation must not re-render Chat every 120ms while working.
+ * Working-idle Chat render regression: animation clocks must live in leaf
+ * components so channel.working does not commit the full transcript tree.
  *
- * Before fix: Chat owned useAnimationFrame(120) → setState in Chat → full
- * tree commit ~8×/s during channel.working. After fix: MiniWake owns the
- * clock; Chat render probe stays flat while paint frames continue.
+ * Before MiniWake fix: Chat useAnimationFrame(120) → ~20 renders/2.4s.
+ * After MiniWake: title setInterval(960) in Chat → ~6 renders/2.4s.
+ * After title leaf: idle working window → ≤2 renders/2.4s (stream bumps only).
  *
  * Run: node --import tsx/esm scripts/verify-miniwake-chat-stable.tsx
  */
@@ -80,8 +81,8 @@ await render(
   { stdout, stdin, stderr, exitOnCtrlC: false, patchConsole: false, onFrame: () => { frameCount++ } },
 )
 
-// rows.length > 30 skips Logo intro; fixed window absorbs any residual settle.
-await sleep(600)
+// rows.length > 30 skips Logo intro; longer settle absorbs layout/timeline reports.
+await sleep(1800)
 
 const chatRendersBefore = readChatRenderProbe()
 resetChatRenderProbe()
@@ -90,9 +91,9 @@ await sleep(2400)
 const chatRendersDuring = readChatRenderProbe()
 const paintFramesDuring = frameCount - framesBefore
 
-// 修复前 Chat 持有 useAnimationFrame(120) → ~20 次/2.4s；修复后仅剩
-// 终端标题 960ms 间隔 → ≤3 次/2.4s。MiniWake 动画仍应有 paint 帧。
-check('working 期间 Chat 不因 120ms wake tick 重渲染', chatRendersDuring <= 8, 'chatRenders=' + chatRendersDuring + ' (pre-fix ~20/2.4s, post-fix ~5 title-only)')
+// 修复前：wake tick ~20/2.4s；仅隔离 wake 后标题 tick ~6/2.4s；
+// 标题时钟也移出 Chat 后应 ≤2/2.4s（无 channel.version bump）。
+check('working 空闲窗口 Chat 不因动画时钟重渲染', chatRendersDuring <= 2, 'chatRenders=' + chatRendersDuring + ' (wake-only ~6/2.4s, pre-wake ~20/2.4s)')
 check('MiniWake 动画仍产生 paint 帧', paintFramesDuring >= 8, 'paintFrames=' + paintFramesDuring)
 check('初始 mount 后 probe 有计数', chatRendersBefore >= 1, 'before=' + chatRendersBefore)
 

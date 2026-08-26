@@ -35,9 +35,8 @@ import { ApprovalPanel } from '../components/approvals/ApprovalPanel.js'
 import { ExtensionDialog } from '../components/ExtensionDialog.js'
 import type { DOMElement } from '../ink/dom.js'
 import { useSearchHighlight } from '../ink/hooks/use-search-highlight.js'
-import { useTerminalTitle } from '../ink/hooks/use-terminal-title.js'
-import { useTerminalFocus } from '../ink/hooks/use-terminal-focus.js'
 import { useCopyOnSelect } from '../ink/hooks/use-copy-on-select.js'
+import { WorkingTerminalTitle } from '../components/WorkingTerminalTitle.js'
 import { useSelection } from '../ink/hooks/use-selection.js'
 import { NoSelect } from '../ink/components/NoSelect.js'
 import { LogoHeader, MessageList } from '../components/MessageList.js'
@@ -132,9 +131,6 @@ const NO_ROWS: readonly ChatRow[] = []
 function capitalize(text: string): string {
   return text.length === 0 ? text : text[0].toUpperCase() + text.slice(1)
 }
-
-/** Terminal-title spinner frames (CC's TITLE_ANIMATION_FRAMES). */
-const TITLE_ANIMATION_FRAMES = ['⠂', '⠐']
 
 /** Searchable transcript text for one row (`/` incsearch, CC semantics:
  *  user text, assistant text, thinking, tool args/results, local output). */
@@ -712,12 +708,6 @@ export function Chat({
   loadingStartTimeRef.current = channel.turnStart
   const thinkingStatus = useThinkingStatus(channel.spinnerMode === 'thinking')
 
-  // Terminal tab title (ported from CC's AnimatedTerminalTitle): the session
-  // title when set, else "dsh-TUI"; a `⠂/⠐` spinner prefix while a turn is
-  // working (960ms cadence, only while the terminal is focused), a static
-  // `✦` otherwise. dsh-TUI brands the idle prefix with the DeepSeek whale.
-  const [titleFrame, setTitleFrame] = React.useState(0)
-  const terminalFocused = useTerminalFocus()
   // Mouse text selection auto-copy (CC's copy-on-select): active only in
   // fullscreen (<AlternateScreen> supplies mouse tracking); a no-op
   // subscription in inline mode, where selection belongs to the terminal.
@@ -727,19 +717,6 @@ export function Chat({
   )
   const { clearSelection: clearMouseSelection, hasSelection: hasMouseSelection } =
     useSelection()
-  React.useEffect(() => {
-    if (!channel.working || !terminalFocused) return
-    const interval = setInterval(() => {
-      setTitleFrame(f => (f + 1) % TITLE_ANIMATION_FRAMES.length)
-    }, 960)
-    return () =>{  clearInterval(interval) }
-  }, [channel.working, terminalFocused])
-  const titlePrefix = channel.working
-    ? (TITLE_ANIMATION_FRAMES[titleFrame] ?? '✦')
-    : '✦'
-  useTerminalTitle(
-    `${titlePrefix} 🐋 ${channel.sessionTitle}`,
-  )
 
   const handleWorkspaceResult = (result: TuiWorkspaceCommandResult): void => {
     workspaceFlowAbortRef.current = null
@@ -3046,6 +3023,7 @@ export function Chat({
 
   return (
     <Box flexDirection="column" flexGrow={1} width="100%">
+      <WorkingTerminalTitle working={channel.working} sessionTitle={channel.sessionTitle} />
       {!isSticky && anchorUserText && (
         <StickyPromptHeader
           text={anchorUserText}
