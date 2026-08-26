@@ -584,6 +584,7 @@ const dict = {
   'settings-readonly-heading': { zh: '其他设置命名空间（只读）', en: 'Other settings namespaces (read-only)' },
   'settings-readonly-tab': { zh: '其他', en: 'Other' },
   'settings-readonly-hint': { zh: '以上命名空间尚无 TUI 设置区块，可手工编辑 {{path}}', en: 'No TUI section for these namespaces yet — edit {{path}} by hand' },
+  'settings-badge-override': { zh: '用户覆盖', en: 'user override' },
   'settings-badge-restart': { zh: '重启生效', en: 'applies on restart' },
   'settings-badge-dirty': { zh: '未保存', en: 'unsaved' },
   'settings-badge-saving': { zh: '保存中', en: 'saving' },
