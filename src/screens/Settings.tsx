@@ -491,7 +491,9 @@ export function Settings({
   const renderRules = showCategories ? [0, 1, 2] as const : [0, 2] as const
   const ruleBudget = Math.max(0, Math.min(renderRules.length, rows - MANDATORY_LINES - extraLines))
   const rules = new Set<number>(renderRules.slice(0, ruleBudget))
-  const listHeight = Math.max(0, rows - MANDATORY_LINES - extraLines - rules.size - 1)
+  // Regions must sum to exactly `rows` (SessionBrowser rule). Do not subtract an
+  // extra line here — MANDATORY_LINES already covers title + status + field hint + nav.
+  const listHeight = Math.max(0, rows - MANDATORY_LINES - extraLines - rules.size)
 
   const listTopRef = React.useRef(session.listTop)
   if (effFocus < listTopRef.current) listTopRef.current = effFocus
