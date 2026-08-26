@@ -16,3 +16,5 @@ Captured by `node --import tsx/esm scripts/capture-pr3-evidence.tsx`.
 120×40 variants use the `after_120x40_*` prefix.
 
 Picker loading / hover (80×24): `after_80x24_model_loading`, `after_80x24_plan_picker`, `after_80x24_plan_hover`, `after_80x24_skills_loading`, `after_80x24_skills_loaded` (`.png` + `.txt`).
+
+Visual review frame order (Jesse): see `REVIEW.md` — maps open → focus → dirty → shortcuts → plan → skills load/loaded to defects and evidence paths.
