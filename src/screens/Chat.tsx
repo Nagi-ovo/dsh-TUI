@@ -3152,22 +3152,17 @@ export function Chat({
             onClick={() => handle?.scrollToBottom()}
           />
         )}
-        {channel.working &&
-          (channel.activityEnabled &&
-          !channel.minimal &&
-          channel.workingActivity !== undefined &&
-          channel.workingActivity.line !== '' &&
-          channel.workingActivity.phase !== 'idle' ? (
-            // The working-activity line REPLACES the CC random-verb spinner
-            // while a turn runs: the plugin's live line (thinking copy /
-            // running tool / narration) is the status, with the spinner
-            // slot's token counter preserved as a suffix. Only real activity
-            // data replaces the spinner — before the first event, or with
-            // `activity: false`, the classic spinner still renders. The line
-            // hugs the left edge (no padding) so the self-narration reads as
-            // part of the transcript, aligned with the `❯` prompt below.
-              <Box marginTop={1}>
-                <ActivityLine
+        {channel.working && (
+          // One reserved working row: ActivityLine and WorkingSpinner swap
+          // content inside a height-1 slot so the first activity snapshot
+          // cannot shove the prompt (StatusLine / Settings rule).
+          <Box marginTop={1} height={1} overflow="hidden" flexShrink={0} width="100%">
+            {channel.activityEnabled &&
+            !channel.minimal &&
+            channel.workingActivity !== undefined &&
+            channel.workingActivity.line !== '' &&
+            channel.workingActivity.phase !== 'idle' ? (
+              <ActivityLine
                   activity={channel.workingActivity}
                   activityFrames={channel.activityFrames}
                   warnPct={activityWarnPct}
@@ -3178,7 +3173,6 @@ export function Chat({
                   // inflating the reading next to a real upload number).
                   suffix={`${lastUploadTokens > 0 ? ` · ↑ ${formatTokens(lastUploadTokens)}` : ''} · ↓ ${formatTokens(Math.round(channel.responseChars / 4))} tokens`}
                 />
-              </Box>
             ) : (
               <WorkingSpinner
                 mode={channel.spinnerMode}
@@ -3190,7 +3184,9 @@ export function Chat({
                 pauseStartTimeRef={pauseStartTimeRef}
                 thinkingStatus={thinkingStatus}
               />
-            ))}
+            )}
+          </Box>
+        )}
         <GoalTodoPanel
           channel={channel}
           collapsed={todoCollapsed}
