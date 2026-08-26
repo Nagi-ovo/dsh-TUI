@@ -745,7 +745,7 @@ const dict = {
   // ── components/ThinkingToggle.tsx + messages/AssistantThinkingMessage.tsx ──
   'thinking-title': { zh: '思考过程显示', en: 'Thinking display' },
   'thinking-enabled': { zh: '显示', en: 'Shown' },
-  'thinking-enabled-desc': { zh: '在对话中显示 DeepSeek 的思考过程（不改变模型行为）', en: "Show DeepSeek's reasoning in the conversation (does not change model behavior)" },
+  'thinking-enabled-desc': { zh: '在对话中显示 DeepSeek 的思考过程（不改变模型的思考行为）', en: "Show DeepSeek's reasoning in the conversation (does not change model behavior)" },
   'thinking-disabled': { zh: '隐藏', en: 'Hidden' },
   'thinking-disabled-desc': { zh: '隐藏思考过程；模型仍会照常思考', en: 'Hide reasoning; the model will still think as usual' },
   'thinking-label': { zh: '思考', en: 'Thinking' },
