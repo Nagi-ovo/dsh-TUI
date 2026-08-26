@@ -56,9 +56,13 @@ export function ModelPicker(props:
   // 焦点窗口化按行预算：ListItem 带 description 时占 2 行（正文+描述，均
   // truncate 成单行），只数项数会把焦点裁出浮层（二次审查实证）。
   // 框架行：浮层预留 8 + Pane 2 + 标题 2 + 页脚 1 + 挂载包裹 marginTop 1 = 14。
-  const rowHeights = inGroups
-    ? props.groups.map(() => 2)
-    : props.models.map(m => (m.description ? 2 : 1))
+  // Uniform row height per catalog: mixed 1/2-line windows made Pane
+  // grow/shrink as focus slid. If any model has a description, reserve the
+  // second line for every row; description-less catalogs stay 1-line (keeps
+  // the narrow-terminal edge gate and denser lists).
+  const modelsHaveDesc = !inGroups && props.models.some(m => m.description !== undefined && m.description !== '')
+  const rowHeight = inGroups || modelsHaveDesc ? 2 : 1
+  const rowHeights = (inGroups ? props.groups : props.models).map(() => rowHeight)
   const rows = inGroups ? props.groups : props.models
   const { start, end } = listWindow(rowHeights, props.focusIndex, Math.max(terminalRows - 14, 2))
   const hint = inGroups
@@ -93,7 +97,9 @@ export function ModelPicker(props:
               key={`${row.provider}/${row.id}`}
               isFocused={absoluteIndex === props.focusIndex}
               isSelected={`${row.provider}/${row.id}` === props.currentModel}
-              description={row.description}
+              description={rowHeight === 2
+                ? (row.description !== undefined && row.description !== '' ? row.description : ' ')
+                : undefined}
               showScrollUp={absoluteIndex === start && start > 0}
               showScrollDown={absoluteIndex === end - 1 && end < rows.length}
               onClick={onPick ? () => onPick(absoluteIndex) : undefined}

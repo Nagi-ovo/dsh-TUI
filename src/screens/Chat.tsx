@@ -2953,6 +2953,8 @@ export function Chat({
   // conversation (an early return after every hook above has run), so there
   // is no transcript underneath to be repainted or bled through.
   if (settingsOpen) {
+    // Settings owns its own session bag (focus + staged forms); closing clears
+    // it. Interrupt remounts keep the bag so the screen reopens calm.
     const screen = <Settings channel={channel} onClose={() => setSettingsOpen(false)} />
     return fullscreen ? screen : <AlternateScreen>{screen}</AlternateScreen>
   }

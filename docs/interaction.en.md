@@ -207,8 +207,10 @@ title or footer chrome. Editing is **staged**: `←`/`→` change category,
 `↑`/`↓` move fields, `Enter` toggles booleans in place or opens an in-place
 select / text editor, `s` saves / `d` discards / `Esc` first drops dirty
 sections, then exits. Field hints live in a reserved footer slot so focus
-never expands a list row. Fields under the dsh-tui namespace are written to
-the user layer of settings.yaml and take **effect immediately** (`lang`,
+never expands a list row. Approval / ask-user-question interrupts briefly
+unmount the screen, but focus, category, and unsaved drafts survive until
+you explicitly close Settings. Fields under the dsh-tui namespace are written
+to the user layer of settings.yaml and take **effect immediately** (`lang`,
 `statusBar.*`, …); namespaces without a declared TUI section sit behind the
 collapsed Other tab and need manual edits to `~/.dsh/settings.yaml`.
 

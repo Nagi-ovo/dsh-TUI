@@ -43,6 +43,7 @@ const GROUPS = {
 // 保存、密钥走 credentials、Esc 返回会话。
     ["repro-settings", ['node', '--import', 'tsx/esm', 'scripts/repro-settings.tsx']],
     ["verify-settings-layout", ['node', '--import', 'tsx/esm', 'scripts/verify-settings-layout.tsx']],
+    ["verify-settings-remount", ['node', '--import', 'tsx/esm', 'scripts/verify-settings-remount.tsx']],
     ["repro-inline-scrollback", ['node', '--import', 'tsx/esm', 'scripts/repro-inline-scrollback.tsx']],
     ["repro-inline-thirdparty", ['node', '--import', 'tsx/esm', 'scripts/repro-inline-thirdparty.tsx']],
 // 全屏 resize 空白回归：宽度变化清空行高缓存 → scrollHeight 估算塌缩，

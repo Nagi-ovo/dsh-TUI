@@ -56,9 +56,13 @@ export function PermissionsPicker({
         <Text dimColor italic>
           <HintLine text={t('hint-confirm-exit')} />
         </Text>
-        <Text dimColor>
-          {t('permission-root-hint', { cwd })}
-        </Text>
+        {/* Reserved footer row (always one line): keeps overlay height stable
+            vs Theme/Lang pickers that only have the hint — cwd truncates. */}
+        <Box height={1} overflow="hidden">
+          <Text dimColor wrap="truncate-end">
+            {t('permission-root-hint', { cwd })}
+          </Text>
+        </Box>
       </Box>
     </Pane>
   )

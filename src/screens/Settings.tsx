@@ -13,9 +13,11 @@ import { SettingsForm } from '../dsh-adapter/settingsEditor.js'
 import type { TuiSettingsField, TuiSettingsSection } from '../dsh-adapter/settings-sections.js'
 import type { LocalizedDescriptions } from '../commands.js'
 import type { Channel } from '../dsh-adapter/channel.js'
-
-/** What the screen is doing with the focused field. */
-type SettingsMode = 'list' | 'edit' | 'select'
+import {
+  claimSettingsSession,
+  clearSettingsSession,
+  type SettingsMode,
+} from './settingsSession.js'
 
 interface EditingState {
   ns: string
@@ -175,16 +177,31 @@ export function Settings({
 }): React.ReactNode {
   const { columns, rows } = useTerminalSize()
   const host = channel.settingsHost()
+  // Survive Chat interrupt remounts: bag lives until the user closes Settings.
+  const session = claimSettingsSession()
   const [namespaces, setNamespaces] = React.useState(() => host?.listNamespaces() ?? [])
   const [sections, setSections] = React.useState(() => channel.settingsSections())
-  const [mode, setMode] = React.useState<SettingsMode>('list')
-  const [editing, setEditing] = React.useState<EditingState | null>(null)
-  const [selectFocus, setSelectFocus] = React.useState(0)
-  const [categoryIndex, setCategoryIndex] = React.useState(0)
-  const [focusIndex, setFocusIndex] = React.useState(0)
-  const [notice, setNotice] = React.useState<{ text: string; tone: 'error' | 'success' } | undefined>(undefined)
+  const [mode, setMode] = React.useState<SettingsMode>(() => session.mode)
+  const [editing, setEditing] = React.useState<EditingState | null>(() => {
+    if (session.editing === null) return null
+    const section = channel.settingsSections().find(entry => entry.ns === session.editing!.ns)
+    const field = section?.fields.find(entry => entry.path.join('.') === session.editing!.fieldPath.join('.'))
+    if (field === undefined) return null
+    return {
+      ns: session.editing.ns,
+      field,
+      draft: session.editing.draft,
+      cursor: session.editing.cursor,
+    }
+  })
+  const [selectFocus, setSelectFocus] = React.useState(() => session.selectFocus)
+  const [categoryIndex, setCategoryIndex] = React.useState(() => session.categoryIndex)
+  const [focusIndex, setFocusIndex] = React.useState(() => session.focusIndex)
+  const [notice, setNotice] = React.useState<{ text: string; tone: 'error' | 'success' } | undefined>(
+    () => session.notice,
+  )
   const [secrets, setSecrets] = React.useState<ReadonlyMap<string, boolean>>(new Map())
-  const [readonlyOpen, setReadonlyOpen] = React.useState(false)
+  const [readonlyOpen, setReadonlyOpen] = React.useState(() => session.readonlyOpen)
   /** Ignore hover-driven focus after a key move (lazygit: key nav wins briefly). */
   const hoverLockRef = React.useRef(0)
   const [, bump] = React.useReducer((count: number) => count + 1, 0)
@@ -197,7 +214,7 @@ export function Settings({
     setSections(channel.settingsSections())
   }), [channel])
 
-  const formsRef = React.useRef(new Map<string, SettingsForm>())
+  const formsRef = React.useRef(session.forms)
   const forms = new Map<string, SettingsForm>()
   if (host !== undefined) {
     for (const section of sections) {
@@ -209,6 +226,29 @@ export function Settings({
     }
   }
   formsRef.current = forms
+  session.forms = forms
+
+  // Mirror navigation into the bag every render so an interrupt remount
+  // reopens on the same category / focus / edit draft.
+  session.categoryIndex = categoryIndex
+  session.focusIndex = focusIndex
+  session.mode = mode
+  session.selectFocus = selectFocus
+  session.readonlyOpen = readonlyOpen
+  session.notice = notice
+  session.editing = editing === null
+    ? null
+    : {
+      ns: editing.ns,
+      fieldPath: editing.field.path,
+      draft: editing.draft,
+      cursor: editing.cursor,
+    }
+
+  const closeSettings = (): void => {
+    clearSettingsSession()
+    onClose()
+  }
 
   const refresh = (): void => {
     setNamespaces(host?.listNamespaces() ?? [])
@@ -246,9 +286,14 @@ export function Settings({
   const focused = focusable.length === 0 ? undefined : focusable[effFocus]
   const focusedForm = activeCategory === undefined ? undefined : forms.get(activeCategory.ns)
 
+  // Only reset focus when the user changes category — not on remount restore.
+  const prevCategoryRef = React.useRef(effCategory)
   React.useEffect(() => {
+    if (prevCategoryRef.current === effCategory) return
+    prevCategoryRef.current = effCategory
     setFocusIndex(0)
-  }, [effCategory])
+    session.listTop = 0
+  }, [effCategory, session])
 
   const lockHover = (): void => {
     hoverLockRef.current = Date.now() + 400
@@ -433,7 +478,7 @@ export function Settings({
         setNotice({ text: t('settings-discarded'), tone: 'success' })
         bump()
       } else {
-        onClose()
+        closeSettings()
       }
     }
   })
@@ -448,10 +493,11 @@ export function Settings({
   const rules = new Set<number>(renderRules.slice(0, ruleBudget))
   const listHeight = Math.max(0, rows - MANDATORY_LINES - extraLines - rules.size - 1)
 
-  const listTopRef = React.useRef(0)
+  const listTopRef = React.useRef(session.listTop)
   if (effFocus < listTopRef.current) listTopRef.current = effFocus
   if (effFocus >= listTopRef.current + listHeight) listTopRef.current = Math.max(0, effFocus - listHeight + 1)
   if (listTopRef.current > 0 && focusable.length <= listHeight) listTopRef.current = 0
+  session.listTop = listTopRef.current
   const windowStart = listTopRef.current
   const visibleFields = focusable.slice(windowStart, windowStart + listHeight)
 
