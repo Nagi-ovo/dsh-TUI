@@ -3,7 +3,7 @@
 
 Usage:
   python3 scripts/txt-frames-to-png.py path/to/frame.txt [more.txt ...]
-  python3 scripts/txt-frames-to-png.py --dir docs/evidence/pr3-settings-polish
+  python3 scripts/txt-frames-to-png.py --dir /opt/cursor/artifacts
 
 Strips ANSI escapes, uses a dark terminal palette, pads to a fixed cell grid.
 Cell width/height are measured from the chosen monospace font so an 80-column

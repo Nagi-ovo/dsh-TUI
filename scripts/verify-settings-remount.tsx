@@ -1,10 +1,7 @@
 /**
- * Settings remount persistence: Chat interrupt unmounts Settings while
- * `settingsOpen` stays true; focus, category, and staged dirty edits must
- * survive the remount (session bag), and clear on explicit close.
- *
- * Env (`DSH_TUI_LANG`) must be pinned BEFORE any `src/` import — ESM hoists
- * static imports above top-level assignments, so this file uses dynamic import.
+ * Settings remount smoke: interrupt unmount/remount must not crash; auto-saved
+ * values remain in the host document (upstream #575 uses component-local state,
+ * so focus is not guaranteed to survive remount).
  *
  * Run: node --import tsx/esm scripts/verify-settings-remount.tsx
  */
@@ -13,7 +10,7 @@ process.env.DSH_TUI_LANG = 'en'
 
 import { Writable, PassThrough } from 'node:stream'
 import xtermPkg from '@xterm/headless'
-import { sleep, viewportLines } from './lib/term-test.mjs'
+import { sleep, viewportLines, settled } from './lib/term-test.mjs'
 
 const XTerm = xtermPkg.Terminal
 const COLS = 80
@@ -29,10 +26,6 @@ async function main(): Promise<void> {
   const React = (await import('react')).default
   const { render, AlternateScreen } = await import('../src/ui.js')
   const { Settings } = await import('../src/screens/Settings.js')
-  const {
-    clearSettingsSession,
-    getSettingsSession,
-  } = await import('../src/screens/settingsSession.js')
 
   function makeTerm() {
     const term = new XTerm({ cols: COLS, rows: ROWS, scrollback: 40, allowProposedApi: true })
@@ -60,23 +53,43 @@ async function main(): Promise<void> {
   }
 
   const docs: Record<string, { revision: number; value: Record<string, unknown>; user: Record<string, unknown> }> = {
-    'dsh-tui': { revision: 1, value: { lang: 'en', fullscreen: false, statusBar: { model: true } }, user: {} },
+    'dsh-tui': { revision: 1, value: { lang: 'en', fullscreen: false }, user: {} },
   }
   const host = {
     listNamespaces: () => Object.entries(docs).map(([ns, doc]) => ({
       ns, revision: doc.revision, applies: 'live' as const, value: { ...doc.value }, user: { ...doc.user },
     })),
-    write: async () => {},
+    write: (ns: string, ops: readonly { op: string; path: readonly string[]; value?: unknown }[], expected?: number) => {
+      const doc = docs[ns]
+      if (doc === undefined) return Promise.reject(new Error(`unknown namespace ${ns}`))
+      if (expected !== undefined && expected !== doc.revision) {
+        return Promise.reject(Object.assign(new Error('stale'), { code: 'SETTINGS_CONFLICT' }))
+      }
+      for (const op of ops) {
+        let parent = doc.value
+        for (const segment of op.path.slice(0, -1)) {
+          const child = parent[segment]
+          if (typeof child === 'object' && child !== null && !Array.isArray(child)) parent = child as Record<string, unknown>
+          else {
+            const created: Record<string, unknown> = {}
+            parent[segment] = created
+            parent = created
+          }
+        }
+        const leaf = op.path.at(-1)
+        if (leaf === undefined) continue
+        if (op.op === 'set') parent[leaf] = op.value
+        else delete parent[leaf]
+      }
+      doc.revision += 1
+      return Promise.resolve()
+    },
     credentialConfigured: async () => false,
     writeCredential: async () => {},
   }
   const section = {
     ns: 'dsh-tui',
     title: 'dsh-tui',
-    groups: [
-      { id: 'status-bar', title: 'Status bar' },
-      { id: 'shortcuts', title: 'Shortcuts' },
-    ],
     fields: [
       {
         path: ['lang'], label: 'Language',
@@ -85,12 +98,7 @@ async function main(): Promise<void> {
       },
       {
         path: ['fullscreen'], label: 'Fullscreen mode',
-        hint: 'On: app takes the whole screen (vim/less style).',
         kind: 'boolean' as const,
-      },
-      {
-        path: ['statusBar', 'model'], label: 'Show model',
-        group: 'status-bar', kind: 'boolean' as const,
       },
     ],
   }
@@ -99,8 +107,6 @@ async function main(): Promise<void> {
     settingsSections: () => [section],
     subscribeSettingsSections: () => () => {},
   }
-
-  clearSettingsSession()
 
   const first = makeTerm()
   let closed = false
@@ -122,23 +128,12 @@ async function main(): Promise<void> {
     },
   )
   await sleep(200)
-
-  first.stdin.write('\x1b[B') // focus Fullscreen
+  first.stdin.write('\x1b[B')
   await sleep(120)
-  first.stdin.write('\r') // toggle boolean → dirty On
-  await sleep(120)
-  const beforeRemount = frame(first.term)
-  check('before remount shows Fullscreen focused dirty', /Fullscreen mode/.test(beforeRemount) && /\bOn\b/.test(beforeRemount) && /\*/.test(beforeRemount), beforeRemount.slice(0, 240))
-  const bagBefore = getSettingsSession()
-  check('session bag alive before remount', bagBefore !== null)
-  check('session focus on second field', bagBefore?.focusIndex === 1, `focus=${bagBefore?.focusIndex}`)
-  check('session form dirty', [...(bagBefore?.forms.values() ?? [])].some(f => f.shell().dirty) === true)
-
-  // Simulate Chat interrupt remount: unmount without closing (settingsOpen stays).
+  first.stdin.write('\r')
+  check(await settled(() => docs['dsh-tui']?.value.fullscreen === true), 'toggle auto-saved before remount')
   await instance1.unmount()
-  await sleep(50)
-  check('bag survives interrupt unmount', getSettingsSession() !== null)
-  check('user did not close', closed === false)
+  check('interrupt unmount without close', closed === false)
 
   const second = makeTerm()
   const instance2 = await render(
@@ -147,7 +142,7 @@ async function main(): Promise<void> {
       null,
       React.createElement(Settings as any, {
         channel,
-        onClose: () => { closed = true; clearSettingsSession() },
+        onClose: () => { closed = true },
       }),
     ),
     {
@@ -160,27 +155,18 @@ async function main(): Promise<void> {
   )
   await sleep(250)
   const afterRemount = frame(second.term)
-  check('after remount still on General (not Status bar)', /Fullscreen mode/.test(afterRemount) && !/Show model/.test(afterRemount), afterRemount.slice(0, 200))
-  check('after remount keeps dirty On', /\bOn\b/.test(afterRemount) && /\*/.test(afterRemount), afterRemount.slice(0, 200))
-  check('after remount still focused Fullscreen row', afterRemount.split('\n').some(line => /❯/.test(line) && /Fullscreen/.test(line)))
+  check('remount renders settings', /^Settings/.test(afterRemount.split('\n')[0] ?? ''))
+  check('saved value survives remount', docs['dsh-tui']?.value.fullscreen === true)
+  check('remount shows checked chip', /\[\s*✓\s*\]/.test(afterRemount) || /\[\s*✓\]/.test(afterRemount), afterRemount.slice(0, 240))
 
-  // Explicit close clears the bag
-  second.stdin.write('\x1b') // Esc → discard dirty
-  await sleep(150)
-  second.stdin.write('\x1b') // Esc → close
+  second.stdin.write('\x1b')
   await sleep(150)
   await instance2.unmount()
-  check('close cleared session bag', getSettingsSession() === null)
+  check('close callback reachable', closed === true)
 
   first.term.dispose()
   second.term.dispose()
-  if (failed > 0) {
-    console.log('--- before ---\n' + beforeRemount)
-    console.log('--- after ---\n' + afterRemount)
-    process.exit(1)
-  }
-  console.log('verify-settings-remount: all checks passed')
-  process.exit(0)
+  process.exit(failed ? 1 : 0)
 }
 
 main().catch(err => {

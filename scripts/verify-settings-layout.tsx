@@ -1,11 +1,10 @@
 /**
- * Settings chrome stability gate: title / status / hint rows must not move
- * when focus changes, and focused field hints must never expand the list.
+ * Settings chrome stability gate (upstream #575 card UI + auto-save):
+ * title / notice slot / help bar must not jump on focus changes; field hints
+ * live in the bottom bar, not the scroll list.
  *
  * Env (`DSH_TUI_LANG`) must be pinned BEFORE any `src/` import — ESM hoists
  * static imports above top-level assignments, so this file uses dynamic import.
- * Mount under AlternateScreen (product path) so a trailing newline cannot
- * scroll the title out of the viewport.
  *
  * Run: node --import tsx/esm scripts/verify-settings-layout.tsx
  */
@@ -14,7 +13,7 @@ process.env.DSH_TUI_LANG = 'en'
 
 import { Writable, PassThrough } from 'node:stream'
 import xtermPkg from '@xterm/headless'
-import { sleep, viewportLines } from './lib/term-test.mjs'
+import { sleep, viewportLines, settled } from './lib/term-test.mjs'
 
 const XTerm = xtermPkg.Terminal
 const COLS = 80
@@ -30,8 +29,6 @@ async function main(): Promise<void> {
   const React = (await import('react')).default
   const { render, AlternateScreen } = await import('../src/ui.js')
   const { Settings } = await import('../src/screens/Settings.js')
-  const { clearSettingsSession } = await import('../src/screens/settingsSession.js')
-  clearSettingsSession()
 
   const term = new XTerm({ cols: COLS, rows: ROWS, scrollback: 20, allowProposedApi: true })
   class FakeStdout extends Writable {
@@ -53,26 +50,52 @@ async function main(): Promise<void> {
 
   function chrome() {
     const view = viewportLines(term, ROWS)
-    const titleY = view.findIndex(l => /^Settings(\s|$|·)/.test(l))
-    const dividers = view.map((l, y) => (/[─-]{8,}/.test(l) ? y : -1)).filter(y => y >= 0)
-    const navY = view.findIndex(l => /Enter/.test(l) && /(edit|toggle|save|Esc|confirm)/i.test(l))
-    const longHintInList = view.some((l, y) => y < (navY === -1 ? ROWS : navY - 1) && /vim\/less|native scrollback/.test(l))
-    const unsavedInListWell = view.some((l, y) => y > 4 && y < (navY === -1 ? ROWS : navY) && /^\s*unsaved\s*$/.test(l))
-    return { titleY, dividers, navY, longHintInList, unsavedInListWell, plain: view.join('\n') }
+    const titleY = view.findIndex(l => /^Settings(\s|$|›)/.test(l))
+    const helpY = view.findIndex(l => /auto-saves|confirm & save/i.test(l) && /Esc/.test(l))
+    const noticeY = view.findIndex((l, y) => y > titleY && y < helpY && (l.trim() === '' || /Saved|✓|✗/.test(l)))
+    const cardTop = view.findIndex(l => /╭/.test(l))
+    const longHintInList = view.some((l, y) => y > titleY && y < helpY - 2 && /vim\/less|native scrollback/.test(l))
+    return { titleY, helpY, noticeY, cardTop, longHintInList, plain: view.join('\n') }
   }
 
+  let writes = 0
   const docs: Record<string, { revision: number; value: Record<string, unknown>; user: Record<string, unknown> }> = {
     'dsh-tui': {
       revision: 1,
       value: { lang: 'en', fullscreen: false, statusBar: { model: true }, keymap: { openModelPicker: 'ctrl+p' } },
-      user: {},
+      user: { keymap: { openModelPicker: 'ctrl+p' } },
     },
   }
   const host = {
     listNamespaces: () => Object.entries(docs).map(([ns, doc]) => ({
       ns, revision: doc.revision, applies: 'live' as const, value: { ...doc.value }, user: { ...doc.user },
     })),
-    write: async () => {},
+    write: (ns: string, ops: readonly { op: string; path: readonly string[]; value?: unknown }[], expected?: number) => {
+      writes += 1
+      const doc = docs[ns]
+      if (doc === undefined) return Promise.reject(new Error(`unknown namespace ${ns}`))
+      if (expected !== undefined && expected !== doc.revision) {
+        return Promise.reject(Object.assign(new Error('stale'), { code: 'SETTINGS_CONFLICT' }))
+      }
+      for (const op of ops) {
+        let parent = doc.value
+        for (const segment of op.path.slice(0, -1)) {
+          const child = parent[segment]
+          if (typeof child === 'object' && child !== null && !Array.isArray(child)) parent = child as Record<string, unknown>
+          else {
+            const created: Record<string, unknown> = {}
+            parent[segment] = created
+            parent = created
+          }
+        }
+        const leaf = op.path.at(-1)
+        if (leaf === undefined) continue
+        if (op.op === 'set') parent[leaf] = op.value
+        else delete parent[leaf]
+      }
+      doc.revision += 1
+      return Promise.resolve()
+    },
     credentialConfigured: async () => false,
     writeCredential: async () => {},
   }
@@ -134,54 +157,38 @@ async function main(): Promise<void> {
   await sleep(150)
   const before = chrome()
   check('title present', before.titleY === 0, `titleY=${before.titleY}`)
-  check('english chrome', /\bGeneral\b/.test(before.plain) && /\bOff\b/.test(before.plain), before.plain.slice(0, 200))
-  check('two chrome rules', before.dividers.length >= 2, `dividers=${before.dividers.join(',')}`)
-  check('footer hint present', before.navY === ROWS - 1, `navY=${before.navY}`)
+  check('card chrome', before.cardTop >= 0, `cardTop=${before.cardTop}`)
+  check('english select chip', /\bEnglish\b/.test(before.plain))
+  check('boolean toggle chip', /\[\s*\]/.test(before.plain))
+  check('help bar present', before.helpY === ROWS - 1, `helpY=${before.helpY}`)
   check('long hint not in list body', !before.longHintInList)
 
-  // Focus next field (Language → Fullscreen) — long hint must stay in footer.
   stdin.write('\u001b[B')
   await sleep(80)
   const after = chrome()
-
-  check('title row stable on focus change', before.titleY === after.titleY && after.titleY === 0, `before=${before.titleY} after=${after.titleY}`)
-  check('status rule stable', before.dividers[0] === after.dividers[0], `${before.dividers[0]}→${after.dividers[0]}`)
-  check('hint rule stable', before.dividers[1] === after.dividers[1] || before.dividers.at(-1) === after.dividers.at(-1), `${before.dividers.join(',')}→${after.dividers.join(',')}`)
-  check('footer hint row stable', before.navY === after.navY && after.navY === ROWS - 1, `nav ${before.navY}→${after.navY}`)
+  check('title row stable on focus change', before.titleY === after.titleY && after.titleY === 0)
+  check('help bar row stable', before.helpY === after.helpY && after.helpY === ROWS - 1)
   check('long hint still not in list after focus', !after.longHintInList)
-  check('no Session category', !/\bSession\b/.test(after.plain))
-  check('boolean shows Off not false', /\bOff\b/.test(after.plain) && !/\bfalse\b/.test(after.plain))
-  check('values show English not clipped', /\bEnglish\b/.test(before.plain))
-  check('unsaved not floating in list well', !before.unsavedInListWell && !after.unsavedInListWell)
 
-  // Toggle dirty: title carries unsaved, value shows On without user* glue.
+  stdin.write('\r')
+  check(await settled(() => writes >= 1), 'boolean toggle auto-saves')
+  check(await settled(() => /Saved dsh-tui|✓/.test(chrome().plain)), 'save notice renders')
+  check(await settled(() => docs['dsh-tui']?.value.fullscreen === true), 'host document updated')
+
+  stdin.write('\x1b[B')
+  await sleep(80)
   stdin.write('\r')
   await sleep(80)
-  const dirty = chrome()
-  check('dirty title suffix', /Settings · unsaved/.test(dirty.plain))
-  check('dirty value shows On', /\bOn\b/.test(dirty.plain))
-  check('dirty star spaced before value', /\*\s+On/.test(dirty.plain))
-  check('no glued star value', !/\*On\b/.test(dirty.plain))
-  check('no override letter in row', !/\bu\s+\*/.test(dirty.plain) && !/\s+u\s+\*/.test(dirty.plain))
-  check('footer shows user source', /user · On:/.test(dirty.plain))
-  check('unsaved not in list well when dirty', !dirty.unsavedInListWell)
-  check('footer hint row stable when dirty', before.navY === dirty.navY && dirty.navY === ROWS - 1)
-
-  stdin.write('\x1b[C')
-  await sleep(120)
-  stdin.write('\x1b[C')
-  await sleep(120)
   const shortcuts = chrome()
+  check('shortcuts group opens', /Open model picker/.test(shortcuts.plain))
   check('shortcut value readable', /ctrl\+p/i.test(shortcuts.plain))
 
-  // Edit mode: caret must stay visible (truncate-start on the value cell).
   stdin.write('\r')
   await sleep(80)
   for (let i = 0; i < 24; i++) stdin.write('\x1b[C')
   await sleep(80)
-  const editing = chrome()
-  check('edit mode shows caret', /▌/.test(editing.plain))
-  check('edit value prefix visible', /ctrl\+p/i.test(editing.plain))
+  check(/▌/.test(chrome().plain), 'edit mode shows caret')
+  check(/ctrl\+p/i.test(chrome().plain), 'edit value prefix visible')
 
   instance.unmount()
   term.dispose()

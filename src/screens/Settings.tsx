@@ -3,170 +3,276 @@ import { Box, Text, useInput, useTerminalSize } from '../ui.js'
 import type { WheelEvent } from '../ink/events/wheel-event.js'
 import { Divider } from '../components/design-system/Divider.js'
 import { HintLine } from '../components/design-system/HintLine.js'
-import { ListItem } from '../components/design-system/ListItem.js'
-import { Select } from '../components/Select.js'
 import { isMod, isPlainReturn } from '../utils/modifiers.js'
 import { truncateWidth } from '../sessions/format.js'
 import { stringWidth } from '../ink/stringWidth.js'
+import { POINTER, TICK, MULTIPLICATION_X } from '../cc/figures.js'
+import type { Theme } from '../theme.js'
 import { getLang, t } from '../i18n.js'
 import { SettingsForm } from '../dsh-adapter/settingsEditor.js'
-import type { TuiSettingsField, TuiSettingsSection } from '../dsh-adapter/settings-sections.js'
+import type { TuiSettingsField, TuiSettingsFieldKind, TuiSettingsGroup, TuiSettingsSection } from '../dsh-adapter/settings-sections.js'
 import type { LocalizedDescriptions } from '../commands.js'
 import type { Channel } from '../dsh-adapter/channel.js'
-import {
-  claimSettingsSession,
-  clearSettingsSession,
-  type SettingsMode,
-} from './settingsSession.js'
+
+/** What the screen is doing with the focused field. */
+type SettingsMode = 'list' | 'edit'
 
 interface EditingState {
   ns: string
   field: TuiSettingsField
   draft: string
-  /** Caret offset into `draft` (Unicode code points). */
-  cursor: number
 }
 
-/** One category tab: a flat field list owned by a single section namespace. */
-interface Category {
-  id: string
-  title: string
-  descriptions?: LocalizedDescriptions
+interface ActiveGroup {
   ns: string
-  fields: readonly TuiSettingsField[]
+  id: string
 }
 
-/** Mandatory chrome rows that never yield: title, status, field hint, nav hint. */
-const MANDATORY_LINES = 4
+/** One focusable row on either the root page or a group subpage. */
+type FocusEntry =
+  | { kind: 'field'; ns: string; field: TuiSettingsField }
+  | { kind: 'group'; ns: string; group: TuiSettingsGroup }
+
+/** One rendered block with its height, for focus-follow windowing. */
+interface RenderEntry {
+  key: string
+  /** Terminal lines this block occupies (accounted, never assumed). */
+  lines: number
+  node: React.ReactNode
+  /** Position in the focus order when this block is a field. */
+  focus?: number
+}
 
 /** Pick the provider-owned translation for the active language. */
 function pick(text: string, descriptions: LocalizedDescriptions | undefined): string {
   return descriptions?.[getLang()] ?? text
 }
 
-/** Compact one-line preview of a read-only namespace's resolved value. */
-function valuePreview(value: unknown, budget: number): string {
-  let raw: string
-  try {
-    raw = JSON.stringify(value) ?? 'undefined'
-  } catch {
-    raw = String(value)
-  }
-  return truncateWidth(raw, Math.max(8, budget))
-}
-
-/** Rendered width of a hint: `HintLine` strips the `**` emphasis markers. */
-function hintWidth(text: string): number {
-  return stringWidth(text.replace(/\*\*/gu, ''))
-}
-
 /**
- * The widest hint that fits, cut only when even the shortest will not.
- * Matches SessionBrowser: a wrapped footer is worse than a truncated one.
- */
-function fitHint(candidates: readonly string[], budget: number): string {
-  for (const candidate of candidates) {
-    if (hintWidth(candidate) <= budget) return candidate
-  }
-  return truncateWidth((candidates[candidates.length - 1] ?? '').replace(/\*\*/gu, ''), budget)
-}
-
-/**
- * Build calm category tabs from plugin sections.
+ * Pad a glyph to a fixed display width.
  *
- * Empty groups are skipped (the former dead "Session" door). Ungrouped fields
- * land in a General tab when the section also has non-empty groups; otherwise
- * the section title itself is the category.
+ * CJK terminal fonts commonly render symbols like `❯`/`✓` (U+276F/U+2713)
+ * a full cell wide where Latin fonts render them narrow — a marker column
+ * built on raw characters then shifts every row's content by one cell when
+ * the focused glyph swaps in. Padding with `stringWidth` (display columns,
+ * not string length) pins the column to `cols` cells on either font, so
+ * rows never move when focus changes.
  */
-function buildCategories(sections: readonly TuiSettingsSection[]): Category[] {
-  const categories: Category[] = []
-  for (const section of sections) {
-    const ungrouped = section.fields.filter(field => field.group === undefined)
-    const groups = (section.groups ?? [])
-      .map(group => ({
-        group,
-        fields: section.fields.filter(field => field.group === group.id),
-      }))
-      .filter(entry => entry.fields.length > 0)
-
-    if (groups.length === 0) {
-      if (ungrouped.length > 0) {
-        categories.push({
-          id: section.ns,
-          title: section.title,
-          descriptions: section.descriptions,
-          ns: section.ns,
-          fields: ungrouped,
-        })
-      }
-      continue
-    }
-
-    if (ungrouped.length > 0) {
-      categories.push({
-        id: `${section.ns}:general`,
-        title: 'General',
-        descriptions: { zh: '常规', en: 'General' },
-        ns: section.ns,
-        fields: ungrouped,
-      })
-    }
-    for (const entry of groups) {
-      categories.push({
-        id: `${section.ns}:${entry.group.id}`,
-        title: entry.group.title,
-        descriptions: entry.group.descriptions,
-        ns: section.ns,
-        fields: entry.fields,
-      })
-    }
-  }
-  return categories
+function padTo(glyph: string, cols: number): string {
+  const width = stringWidth(glyph)
+  return width >= cols ? glyph : glyph + ' '.repeat(cols - width)
 }
 
-/** Human label for a stored field value (On/Off, option labels, secrets…). */
-function displayValue(
-  field: TuiSettingsField,
-  text: string,
-  opts: { editing?: boolean; draft?: string; cursor?: number; secretConfigured?: boolean },
-): string {
-  if (field.secret !== undefined) {
-    if (opts.editing) {
-      const draft = opts.draft ?? ''
-      const cursor = opts.cursor ?? draft.length
-      const masked = '•'.repeat(draft.length)
-      return `${masked.slice(0, cursor)}▌${masked.slice(cursor)}`
-    }
-    if (text !== '') return `${'•'.repeat(text.length)} ${t('settings-secret-staged')}`
-    return opts.secretConfigured ? t('settings-secret-set') : t('settings-secret-unset')
+/**
+ * One editable field row. Always exactly one line tall — the value column
+ * stays flush right (badges attach to its left), and the field's hint lives
+ * in the bottom help bar instead of a second row, so moving the focus never
+ * reflows the list. 行高亮背景由外层 CardRow 负责，本组件只管文字与 chip。
+ */
+function FieldRow({
+  label,
+  kind,
+  value,
+  selectLabel,
+  focused,
+  editing,
+  invalid,
+  staged,
+  onClick,
+  onMouseEnter,
+}: {
+  label: string
+  kind: TuiSettingsFieldKind
+  value: string
+  /** select 字段当前值对应的本地化选项文案（值非空且命中选项时提供）。 */
+  selectLabel?: string
+  focused: boolean
+  editing: boolean
+  invalid: boolean
+  staged: boolean
+  onClick?: () => void
+  onMouseEnter?: () => void
+}): React.ReactNode {
+  const booleanChip = kind === 'boolean' && (value === 'true' || value === 'false')
+  return (
+    <Box
+      flexDirection="row"
+      height={1}
+      flexShrink={0}
+      overflow="hidden"
+      onClick={onClick}
+      onMouseEnter={onMouseEnter}
+    >
+      <Text color={focused ? 'suggestion' : undefined}>{focused ? padTo(POINTER, 2) : '  '}</Text>
+      <Text bold={focused}>{label}</Text>
+      <Box flexGrow={1} />
+      {invalid && <Text color="error">{t('settings-field-invalid')} </Text>}
+      {staged && !editing && <Text color="suggestion">* </Text>}
+      {booleanChip ? (
+        <Text color={value === 'true' ? 'success' : 'inactive'}>
+          {value === 'true' ? `[${padTo(TICK, 2)}]` : '[  ]'}
+        </Text>
+      ) : selectLabel !== undefined ? (
+        // chip 右缘 = › 字符本身，恒贴右（flex spacer 向左吸收字体宽度差）；
+        // 两侧各一个字面空格，任何字体下 chevron 与文案的间隙一致。
+        <Text>
+          <Text color={focused ? 'suggestion' : 'subtle'}>{'‹ '}</Text>
+          <Text color={focused ? 'suggestion' : undefined}>{selectLabel}</Text>
+          <Text color={focused ? 'suggestion' : 'subtle'}>{' ›'}</Text>
+        </Text>
+      ) : (
+        <Text color={editing || focused ? 'suggestion' : undefined} dimColor={!focused && !editing && value === ''}>
+          {value}
+        </Text>
+      )}
+    </Box>
+  )
+}
+
+/** A group navigation row — opens the group's subpage on Enter/click. */
+function GroupRow({
+  title,
+  focused,
+  onClick,
+  onMouseEnter,
+}: {
+  title: string
+  focused: boolean
+  onClick?: () => void
+  onMouseEnter?: () => void
+}): React.ReactNode {
+  return (
+    <Box
+      flexDirection="row"
+      height={1}
+      flexShrink={0}
+      overflow="hidden"
+      onClick={onClick}
+      onMouseEnter={onMouseEnter}
+    >
+      <Text color={focused ? 'suggestion' : undefined}>{focused ? padTo(POINTER, 2) : '  '}</Text>
+      <Text bold={focused}>{title}</Text>
+      <Box flexGrow={1} />
+      {/* 右缘 = › 本身，恒贴右；宽度差由 flex spacer 向左吸收。 */}
+      <Text color={focused ? 'suggestion' : 'subtle'}>{'›'}</Text>
+    </Box>
+  )
+}
+
+/** 区块卡片的边框色（沿用输入框的 panel 边框 token）。 */
+const CARD_BORDER: keyof Theme = 'promptBorder'
+
+/**
+ * 区块卡片的顶边：`╭─ 标题 (副标题) ────── [徽章] ╮`。
+ *
+ * 标题用区块主题色加粗、徽章保留各自的语义色（未保存/重启/失败），其余
+ * 边框线用卡片边框色。宽度按 stringWidth 精确计算（CJK 标题占 2 格），
+ * 极窄终端依次退化：先丢副标题、再丢徽章、最后截断标题。
+ */
+function CardTop({
+  title,
+  subtitle,
+  badges,
+  columns,
+  color = CARD_BORDER,
+}: {
+  title: string
+  subtitle?: string
+  badges: readonly { text: string; color: keyof Theme }[]
+  columns: number
+  color?: keyof Theme
+}): React.ReactNode {
+  const subtitleText = subtitle === undefined ? '' : ` (${subtitle})`
+  let showSubtitle = subtitleText !== ''
+  let showBadges = badges.length > 0
+  let titleText = title
+  const badgesWidth = badges.reduce((sum, badge) => sum + stringWidth(`[${badge.text}]`), 0) + Math.max(0, badges.length - 1)
+  // 布局：'╭─ ' + 标题 + 副标题 + ' ' + 虚线 + [' ' + 徽章 + ' '] + '╮'
+  const used = (titleWidth: number, withSubtitle: boolean, withBadges: boolean): number =>
+    5 + titleWidth + (withSubtitle ? stringWidth(subtitleText) : 0) + (withBadges ? 2 + badgesWidth : 0)
+  if (used(stringWidth(titleText), showSubtitle, showBadges) + 1 > columns && showSubtitle) showSubtitle = false
+  if (used(stringWidth(titleText), showSubtitle, showBadges) + 1 > columns && showBadges) showBadges = false
+  if (used(stringWidth(titleText), showSubtitle, showBadges) + 1 > columns) {
+    titleText = truncateWidth(titleText, Math.max(4, columns - 6 - (showSubtitle ? stringWidth(subtitleText) : 0) - (showBadges ? 2 + badgesWidth : 0)))
   }
-  if (opts.editing) {
-    const draft = opts.draft ?? ''
-    const cursor = Math.max(0, Math.min(opts.cursor ?? draft.length, draft.length))
-    return `${draft.slice(0, cursor)}▌${draft.slice(cursor)}`
-  }
-  if (field.kind === 'boolean') {
-    if (text === '') return t('settings-field-empty')
-    return text === 'true' ? t('settings-on') : t('settings-off')
-  }
-  if (field.kind === 'select') {
-    if (text === '') return t('settings-field-empty')
-    const option = field.options?.find(entry => entry.value === text)
-    return option !== undefined ? pick(option.label, option.descriptions) : text
-  }
-  return text === '' ? t('settings-field-empty') : text
+  const dashes = Math.max(0, columns - used(stringWidth(titleText), showSubtitle, showBadges))
+  return (
+    <Box flexDirection="row" height={1} flexShrink={0} overflow="hidden">
+      <Text color={color}>{'╭─ '}</Text>
+      <Text bold color="permission">{titleText}</Text>
+      {showSubtitle && <Text dimColor>{subtitleText}</Text>}
+      <Text color={color}>{` ${'─'.repeat(dashes)}`}</Text>
+      {showBadges && (
+        <>
+          <Text color={color}>{' '}</Text>
+          {badges.map((badge, index) => (
+            <React.Fragment key={index}>
+              {index > 0 && <Text color={color}>{' '}</Text>}
+              <Text color={badge.color}>{`[${badge.text}]`}</Text>
+            </React.Fragment>
+          ))}
+          <Text color={color}>{' '}</Text>
+        </>
+      )}
+      <Text color={color}>{'╮'}</Text>
+    </Box>
+  )
+}
+
+/** 区块卡片的底边：`╰──────╯`。 */
+function CardBottom({ columns, color = CARD_BORDER }: { columns: number; color?: keyof Theme }): React.ReactNode {
+  return (
+    <Text color={color} wrap="truncate-end">
+      {`╰${'─'.repeat(Math.max(0, columns - 2))}╯`}
+    </Text>
+  )
+}
+
+/**
+ * 卡片内一行：`│` 左右边框 + 内容区。聚焦行的高亮背景涂在内容区上
+ * （padding 也在背景内），边框线本身不吃高亮——高亮条正好嵌在两道
+ * 竖线之间。行内容恒 1 行，与窗口化滚动逐行兼容（SuggestionCard 同族）。
+ */
+function CardRow({
+  children,
+  highlight,
+  color = CARD_BORDER,
+}: {
+  children: React.ReactNode
+  highlight?: boolean
+  color?: keyof Theme
+}): React.ReactNode {
+  return (
+    <Box flexDirection="row" height={1} flexShrink={0} overflow="hidden">
+      <Text color={color}>│</Text>
+      <Box
+        flexDirection="column"
+        flexGrow={1}
+        minWidth={0}
+        paddingX={1}
+        backgroundColor={highlight === true ? 'selectionBg' : undefined}
+      >
+        {children}
+      </Box>
+      <Text color={color}>│</Text>
+    </Box>
+  )
 }
 
 /**
  * The settings screen — `/settings` as a screen of its own (issue #165).
  *
- * Presentation only: plugin-declared sections from `tuiSettingsSections`
- * render as editable forms; writes go through the dsh settings service or
- * the credentials seam. Edits are staged until an explicit save.
+ * The TUI owns only presentation here: plugin-declared sections from the
+ * `tuiSettingsSections` seam render as editable forms; every write goes back
+ * through the dsh settings service (revision-fenced `mutate` path ops) or the
+ * credentials seam (secret fields, blank-until-typed).
  *
- * Layout follows SessionBrowser chrome math: every region is accounted so
- * the frame sums to exactly `rows`. List rows are always one line; field
- * hints live in a reserved footer slot so focus never expands the list.
+ * Edits auto-save: toggling a boolean/select writes on the spot, confirming a
+ * text draft writes on Enter, and Esc just leaves — there is no save key and
+ * nothing to discard. The SettingsForm still stages drafts under the hood (its
+ * snapshot save keeps rapid successive edits serialized; see
+ * settingsEditor.ts), so the brief in-flight window and a failed save keep
+ * their `*` / badge feedback.
  */
 export function Settings({
   channel,
@@ -175,36 +281,27 @@ export function Settings({
   channel: Channel
   onClose: () => void
 }): React.ReactNode {
+  // Explicit terminal size (not flexGrow) — the same rule SessionBrowser's
+  // root follows inside the alternate screen's fixed-height box.
   const { columns, rows } = useTerminalSize()
+  // channel caches the host — a fresh object per call would re-fire the
+  // host-keyed effects below on every render (an endless render loop).
   const host = channel.settingsHost()
-  // Survive Chat interrupt remounts: bag lives until the user closes Settings.
-  const session = claimSettingsSession()
   const [namespaces, setNamespaces] = React.useState(() => host?.listNamespaces() ?? [])
   const [sections, setSections] = React.useState(() => channel.settingsSections())
-  const [mode, setMode] = React.useState<SettingsMode>(() => session.mode)
-  const [editing, setEditing] = React.useState<EditingState | null>(() => {
-    if (session.editing === null) return null
-    const section = channel.settingsSections().find(entry => entry.ns === session.editing!.ns)
-    const field = section?.fields.find(entry => entry.path.join('.') === session.editing!.fieldPath.join('.'))
-    if (field === undefined) return null
-    return {
-      ns: session.editing.ns,
-      field,
-      draft: session.editing.draft,
-      cursor: session.editing.cursor,
-    }
-  })
-  const [selectFocus, setSelectFocus] = React.useState(() => session.selectFocus)
-  const [categoryIndex, setCategoryIndex] = React.useState(() => session.categoryIndex)
-  const [focusIndex, setFocusIndex] = React.useState(() => session.focusIndex)
-  const [notice, setNotice] = React.useState<{ text: string; tone: 'error' | 'success' } | undefined>(
-    () => session.notice,
-  )
+  const [mode, setMode] = React.useState<SettingsMode>('list')
+  const [editing, setEditing] = React.useState<EditingState | null>(null)
+  const [activeGroup, setActiveGroup] = React.useState<ActiveGroup | null>(null)
+  const [focusIndex, setFocusIndex] = React.useState(0)
+  const [notice, setNotice] = React.useState<{ text: string; tone: 'error' | 'success' } | undefined>(undefined)
+  /** Configured status of every secret field's credential ref. */
   const [secrets, setSecrets] = React.useState<ReadonlyMap<string, boolean>>(new Map())
-  const [readonlyOpen, setReadonlyOpen] = React.useState(() => session.readonlyOpen)
-  /** Ignore hover-driven focus after a key move (lazygit: key nav wins briefly). */
-  const hoverLockRef = React.useRef(0)
+  /** First line of the windowed entry list (focus-follow scrolling). */
+  const [windowStart, setWindowStart] = React.useState(0)
+  /** Repaint after a form mutation — staged drafts live in the (React-free)
+   *  SettingsForm, so editing one changes no React state by itself. */
   const [, bump] = React.useReducer((count: number) => count + 1, 0)
+  /** Async save completions must not touch state after the screen closes. */
   const mountedRef = React.useRef(true)
   React.useEffect(() => () => {
     mountedRef.current = false
@@ -214,7 +311,10 @@ export function Settings({
     setSections(channel.settingsSections())
   }), [channel])
 
-  const formsRef = React.useRef(session.forms)
+  // One form per section namespace. A fresh namespace view replaces the form
+  // only while it holds no edits — replacing a dirty form would discard the
+  // drafts the user is still typing.
+  const formsRef = React.useRef(new Map<string, SettingsForm>())
   const forms = new Map<string, SettingsForm>()
   if (host !== undefined) {
     for (const section of sections) {
@@ -226,34 +326,13 @@ export function Settings({
     }
   }
   formsRef.current = forms
-  session.forms = forms
-
-  // Mirror navigation into the bag every render so an interrupt remount
-  // reopens on the same category / focus / edit draft.
-  session.categoryIndex = categoryIndex
-  session.focusIndex = focusIndex
-  session.mode = mode
-  session.selectFocus = selectFocus
-  session.readonlyOpen = readonlyOpen
-  session.notice = notice
-  session.editing = editing === null
-    ? null
-    : {
-      ns: editing.ns,
-      fieldPath: editing.field.path,
-      draft: editing.draft,
-      cursor: editing.cursor,
-    }
-
-  const closeSettings = (): void => {
-    clearSettingsSession()
-    onClose()
-  }
 
   const refresh = (): void => {
     setNamespaces(host?.listNamespaces() ?? [])
   }
 
+  // Secret fields report only configured/unconfigured; resolve each ref once
+  // per section-list change (and after every save, which may have set one).
   const [secretProbe, setSecretProbe] = React.useState(0)
   React.useEffect(() => {
     if (host === undefined) return
@@ -272,37 +351,45 @@ export function Settings({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [host, sections, secretProbe])
 
-  const categories = React.useMemo(() => buildCategories(sections), [sections])
-  const registeredNs = React.useMemo(() => new Set(sections.map(section => section.ns)), [sections])
-  const readonlyNamespaces = namespaces.filter(entry => !registeredNs.has(entry.ns))
-  const hasReadonly = readonlyNamespaces.length > 0
-  const categoryCount = categories.length + (hasReadonly ? 1 : 0)
-  const effCategory = Math.min(categoryIndex, Math.max(0, categoryCount - 1))
-  const activeCategory = effCategory < categories.length ? categories[effCategory] : undefined
-  const onReadonlyTab = hasReadonly && effCategory === categories.length
+  const activeSection = activeGroup === null ? undefined : sections.find(section => section.ns === activeGroup.ns)
+  const activeGroupSpec = activeSection?.groups?.find(group => group.id === activeGroup?.id)
+  React.useEffect(() => {
+    if (activeGroup !== null && activeGroupSpec === undefined) {
+      setActiveGroup(null)
+      setFocusIndex(0)
+      setWindowStart(0)
+    }
+  }, [activeGroup, activeGroupSpec])
 
-  const focusable = activeCategory?.fields ?? []
+  /** Focusable rows in display order for the current page. */
+  const focusable: FocusEntry[] = activeSection !== undefined && activeGroupSpec !== undefined
+    ? activeSection.fields
+      .filter(field => field.group === activeGroupSpec.id)
+      .map(field => ({ kind: 'field', ns: activeSection.ns, field }))
+    : sections.flatMap(section => [
+      ...section.fields
+        .filter(field => field.group === undefined)
+        .map(field => ({ kind: 'field' as const, ns: section.ns, field })),
+      ...(section.groups ?? []).map(group => ({ kind: 'group' as const, ns: section.ns, group })),
+    ])
   const effFocus = Math.min(focusIndex, Math.max(0, focusable.length - 1))
   const focused = focusable.length === 0 ? undefined : focusable[effFocus]
-  const focusedForm = activeCategory === undefined ? undefined : forms.get(activeCategory.ns)
 
-  const lockHover = (): void => {
-    hoverLockRef.current = Date.now() + 400
-  }
-
-  /** Change category and reset focus/scroll in the same turn (no one-frame skew). */
-  const goCategory = (next: number): void => {
-    const clamped = Math.max(0, Math.min(categoryCount - 1, next))
-    if (clamped === effCategory) return
-    lockHover()
-    setCategoryIndex(clamped)
-    setFocusIndex(0)
-    session.listTop = 0
-  }
-
-  const commitSave = (ns: string): void => {
-    const form = forms.get(ns)
-    if (form === undefined || form.saving || !form.shell().dirty) return
+  /**
+   * Save a section's staged edits right now (auto-save: every confirmed edit
+   * writes immediately — no manual save key, Esc just leaves). A save already
+   * in flight chains: the pending marker re-runs the save once it settles, and
+   * the editor's snapshot semantics keep drafts staged mid-flight alive, so
+   * rapid toggles serialize instead of racing the revision fence.
+   */
+  const pendingSaveRef = React.useRef(new Set<string>())
+  const saveSoon = (ns: string): void => {
+    const form = formsRef.current.get(ns)
+    if (form === undefined || !form.available || form.shell().invalid || !form.shell().dirty) return
+    if (form.saving) {
+      pendingSaveRef.current.add(ns)
+      return
+    }
     void form.save().then(ok => {
       if (!mountedRef.current) return
       if (ok) {
@@ -312,12 +399,17 @@ export function Settings({
       } else {
         setNotice({ text: t('settings-save-failed', { ns }), tone: 'error' })
       }
+      if (pendingSaveRef.current.delete(ns)) {
+        const next = formsRef.current.get(ns)
+        if (next !== undefined && next.shell().dirty) saveSoon(ns)
+      }
     })
   }
 
+  /** Cycle a boolean/select field and save the change immediately. */
   const cycleField = (ns: string, field: TuiSettingsField): void => {
     const form = forms.get(ns)
-    if (form === undefined || !form.available || form.saving) return
+    if (form === undefined || !form.available) return
     const current = form.field(field).text
     if (field.kind === 'boolean') {
       form.edit(field, current === 'true' ? 'false' : 'true')
@@ -327,451 +419,378 @@ export function Settings({
       const index = options.findIndex(option => option.value === current)
       form.edit(field, options[(index + 1) % options.length]?.value ?? options[0]?.value ?? '')
     }
-    setNotice(undefined)
     bump()
+    saveSoon(ns)
   }
 
-  const openSelect = (ns: string, field: TuiSettingsField): void => {
-    const form = forms.get(ns)
-    if (form === undefined || !form.available || form.saving) return
-    const options = field.options ?? []
-    if (options.length === 0) return
-    const current = form.field(field).text
-    const index = Math.max(0, options.findIndex(option => option.value === current))
-    setEditing({ ns, field, draft: current, cursor: current.length })
-    setSelectFocus(index === -1 ? 0 : index)
-    setMode('select')
-  }
-
-  const activateField = (ns: string, field: TuiSettingsField): void => {
-    const form = forms.get(ns)
-    if (form === undefined || !form.available || form.saving) return
-    if (field.kind === 'boolean') {
-      cycleField(ns, field)
+  /**
+   * Activate one focusable entry — the keyboard Enter path, shared with the
+   * mouse click. Groups open their subpage; boolean/select fields cycle their
+   * value; text/secret fields enter the edit mode.
+   */
+  const activateEntry = (entry: FocusEntry): void => {
+    if (entry.kind === 'group') {
+      setActiveGroup({ ns: entry.ns, id: entry.group.id })
+      setFocusIndex(0)
+      setWindowStart(0)
       return
     }
-    if (field.kind === 'select') {
-      openSelect(ns, field)
-      return
+    const form = forms.get(entry.ns)
+    if (form === undefined || !form.available) return
+    if (entry.field.kind === 'boolean' || entry.field.kind === 'select') {
+      cycleField(entry.ns, entry.field)
+    } else {
+      setEditing({ ns: entry.ns, field: entry.field, draft: form.field(entry.field).text })
+      setMode('edit')
     }
-    const text = form.field(field).text
-    setEditing({ ns, field, draft: text, cursor: text.length })
-    setMode('edit')
   }
 
+  /** Mouse wheel moves the focus (the window is focus-follow, so moving the
+   *  focus IS scrolling); the edit mode keeps the keyboard as sole owner. */
   const handleWheel = (event: WheelEvent): void => {
-    if (mode !== 'list') return
-    if (onReadonlyTab) return
+    if (mode === 'edit') return
     const direction = event.deltaY >= 0 ? 1 : -1
-    lockHover()
     setFocusIndex(previous =>
       Math.min(Math.max(0, focusable.length - 1), Math.max(0, previous + direction)),
     )
   }
 
   useInput((input, key) => {
-    if (mode === 'select' && editing !== null) {
-      const options = editing.field.options ?? []
-      if (key.upArrow) {
-        setSelectFocus(previous => Math.max(0, previous - 1))
-      } else if (key.downArrow) {
-        setSelectFocus(previous => Math.min(Math.max(0, options.length - 1), previous + 1))
-      } else if (isPlainReturn(key)) {
-        const chosen = options[selectFocus]
-        if (chosen !== undefined) {
-          forms.get(editing.ns)?.edit(editing.field, chosen.value)
-          bump()
-        }
-        setMode('list')
-        setEditing(null)
-      } else if (key.escape) {
-        setMode('list')
-        setEditing(null)
-      }
-      return
-    }
-
     if (mode === 'edit' && editing !== null) {
       if (isPlainReturn(key)) {
-        forms.get(editing.ns)?.edit(editing.field, editing.draft)
-        bump()
-        setMode('list')
-        setEditing(null)
+        // Confirm the draft: an invalid value keeps the editor open with the
+        // error badge and a toast; a valid one saves immediately (auto-save).
+        const form = forms.get(editing.ns)
+        if (form !== undefined) {
+          form.edit(editing.field, editing.draft)
+          if (form.field(editing.field).invalid) {
+            setNotice({ text: t('settings-field-invalid'), tone: 'error' })
+            bump()
+            return
+          }
+          bump()
+          setMode('list')
+          setEditing(null)
+          saveSoon(editing.ns)
+        }
       } else if (key.escape) {
         setMode('list')
         setEditing(null)
-      } else if (key.leftArrow) {
-        setEditing(state => state === null ? null : { ...state, cursor: Math.max(0, state.cursor - 1) })
-      } else if (key.rightArrow) {
-        setEditing(state => state === null ? null : {
-          ...state,
-          cursor: Math.min(state.draft.length, state.cursor + 1),
-        })
       } else if (key.backspace || key.delete) {
-        setEditing(state => {
-          if (state === null) return null
-          if (key.delete) {
-            if (state.cursor >= state.draft.length) return state
-            return {
-              ...state,
-              draft: state.draft.slice(0, state.cursor) + state.draft.slice(state.cursor + 1),
-            }
-          }
-          if (state.cursor <= 0) return state
-          return {
-            ...state,
-            draft: state.draft.slice(0, state.cursor - 1) + state.draft.slice(state.cursor),
-            cursor: state.cursor - 1,
-          }
-        })
+        setEditing(state => state === null ? null : { ...state, draft: state.draft.slice(0, -1) })
       } else if (!isMod(key) && !key.meta && !key.super && input && !key.return) {
+        // Only real characters reach the draft (see SessionBrowser's query).
         const typed = input.replace(/\p{Cc}/gu, '')
         if (typed.length > 0) {
-          setEditing(state => {
-            if (state === null) return null
-            return {
-              ...state,
-              draft: state.draft.slice(0, state.cursor) + typed + state.draft.slice(state.cursor),
-              cursor: state.cursor + typed.length,
-            }
-          })
+          setEditing(state => state === null ? null : { ...state, draft: state.draft + typed })
         }
       }
-      return
-    }
-
-    if (key.leftArrow && categoryCount > 1) {
-      goCategory(effCategory - 1)
-      return
-    }
-    if (key.rightArrow && categoryCount > 1) {
-      goCategory(effCategory + 1)
       return
     }
 
     if (key.upArrow) {
-      if (onReadonlyTab) return
-      lockHover()
       setFocusIndex(Math.max(0, effFocus - 1))
     } else if (key.downArrow) {
-      if (onReadonlyTab) return
-      lockHover()
       setFocusIndex(Math.min(Math.max(0, focusable.length - 1), effFocus + 1))
-    } else if (isPlainReturn(key) && activeCategory !== undefined && focused !== undefined) {
-      activateField(activeCategory.ns, focused)
-    } else if (isPlainReturn(key) && onReadonlyTab) {
-      setReadonlyOpen(open => !open)
-    } else if (input === 's' && activeCategory !== undefined) {
-      commitSave(activeCategory.ns)
-    } else if (input === 'd' && activeCategory !== undefined) {
-      const form = forms.get(activeCategory.ns)
-      if (form?.saving) return
-      form?.discard()
-      setNotice(undefined)
-      bump()
+    } else if (isPlainReturn(key) && focused !== undefined) {
+      activateEntry(focused)
     } else if (key.escape) {
-      const dirty = [...forms.values()].filter(form => form.shell().dirty)
-      if (dirty.length > 0) {
-        if (dirty.some(form => form.saving)) return
-        for (const form of dirty) form.discard()
-        setNotice({ text: t('settings-discarded'), tone: 'success' })
-        bump()
-      } else {
-        closeSettings()
+      if (activeGroupSpec !== undefined) {
+        // Group navigation only unwinds the page; edits save as they land.
+        setActiveGroup(null)
+        setFocusIndex(0)
+        setWindowStart(0)
+        return
       }
+      // Auto-save means there is nothing left to discard: Esc leaves. A save
+      // still in flight was already dispatched — it settles on its own.
+      onClose()
     }
   })
 
-  // ── Chrome accounting (SessionBrowser rule): regions sum to exactly `rows`. ─
-  const showCategories = categoryCount > 1
-  const extraLines = showCategories ? 1 : 0
-  // Rules that actually render: top under title, optional category separator,
-  // bottom above the footer. Never count a rule we will not paint.
-  const renderRules = showCategories ? [0, 1, 2] as const : [0, 2] as const
-  const ruleBudget = Math.max(0, Math.min(renderRules.length, rows - MANDATORY_LINES - extraLines))
-  const rules = new Set<number>(renderRules.slice(0, ruleBudget))
-  // Regions must sum to exactly `rows` (SessionBrowser rule). Do not subtract an
-  // extra line here — MANDATORY_LINES already covers title + status + field hint + nav.
-  const listHeight = Math.max(0, rows - MANDATORY_LINES - extraLines - rules.size)
-
-  const listTopRef = React.useRef(session.listTop)
-  if (effFocus < listTopRef.current) listTopRef.current = effFocus
-  if (effFocus >= listTopRef.current + listHeight) listTopRef.current = Math.max(0, effFocus - listHeight + 1)
-  if (listTopRef.current > 0 && focusable.length <= listHeight) listTopRef.current = 0
-  session.listTop = listTopRef.current
-  const windowStart = listTopRef.current
-  const visibleFields = focusable.slice(windowStart, windowStart + listHeight)
-
-  const anyDirty = [...forms.values()].some(form => form.shell().dirty)
-  const anySaving = [...forms.values()].some(form => form.shell().saving)
-  const anyFailed = [...forms.values()].some(form => form.shell().failed)
-  const statusText = notice?.text
-    ?? (anySaving ? t('settings-badge-saving')
-      : anyFailed ? t('settings-badge-failed')
-        : anyDirty ? t('settings-badge-dirty')
-          : '')
-  const statusTone = notice?.tone === 'error' || anyFailed ? 'error'
-    : notice?.tone === 'success' ? 'success'
-      : anyDirty ? 'suggestion'
-        : undefined
-  const titleText = statusText !== ''
-    ? `${t('settings-title')} · ${statusText}`
-    : t('settings-title')
-
-  const focusedState = focused !== undefined ? focusedForm?.field(focused) : undefined
-  const focusedHint = focused !== undefined && focused.hint !== undefined
-    ? pick(focused.hint, focused.hintDescriptions)
-    : undefined
-  const fieldHintLine = (() => {
-    if (focused === undefined) return ''
-    const hasMeta = focusedHint !== undefined
-      || focusedState?.overridden === true
-      || focusedState?.invalid === true
-    if (!hasMeta) return ''
-    const parts = [pick(focused.label, focused.descriptions)]
-    if (focusedState?.overridden === true) parts.push(t('settings-badge-override'))
-    if (focusedState?.invalid === true) parts.push(t('settings-field-invalid'))
-    if (focusedHint !== undefined) parts.push(focusedHint)
-    return parts.join(' · ')
-  })()
-
-  const navHint = fitHint(
-    mode === 'edit'
-      ? [t('settings-hint-edit'), t('settings-hint-edit-short')]
-      : mode === 'select'
-        ? [t('settings-hint-select'), t('settings-hint-edit-short')]
-        : showCategories
-          ? [t('settings-hint-list'), t('settings-hint-list-short')]
-          : [t('settings-hint-list-short'), t('settings-hint-list')],
-    columns,
-  )
-
-  // Pinned right block: 1-col dirty star, 1-col gap, then value — star never
-  // rides the value width (* On /   Off /   English at fixed columns).
-  const STAR_SLOT = 1
-  const GAP_SLOT = 1
-  const badgeBlock = STAR_SLOT + GAP_SLOT
-  const valueColWidth = Math.max(12, Math.min(20, Math.floor(columns * 0.26)))
-  const labelBudget = Math.max(8, columns - 2 - badgeBlock - valueColWidth - 2)
-
-  const renderFieldRow = (field: TuiSettingsField, absoluteIndex: number): React.ReactNode => {
-    if (activeCategory === undefined) return null
-    const ns = activeCategory.ns
+  const renderField = (section: TuiSettingsSection, field: TuiSettingsField, focus: number): React.ReactNode => {
+    const ns = section.ns
     const form = forms.get(ns)
     const state = form?.field(field) ?? { text: '', overridden: false, invalid: false }
-    const isFocused = absoluteIndex === effFocus && mode === 'list'
-    const isEditing = mode === 'edit' && editing !== null && editing.field === field && editing.ns === ns
+    const isFocused = focused?.kind === 'field' && focused.ns === ns && focused.field === field
+    const isEditing = isFocused && mode === 'edit' && editing !== null
     const label = pick(field.label, field.descriptions)
-    const value = displayValue(field, state.text, {
-      editing: isEditing,
-      draft: editing?.draft,
-      cursor: editing?.cursor,
-      secretConfigured: secrets.get(`${ns}:${field.path.join('.')}`) === true,
-    })
-    const isStaged = form?.isStaged(field) === true && !isEditing
-    const hoverable = mode === 'list'
+    // 鼠标：编辑态整屏不响应（草稿由键盘独占，防误触抢焦点）；列表态
+    // 悬停即移动焦点（lazygit 语义——焦点就是选中），点击 = 焦点 + 该行
+    // 的 Enter 动作（boolean/select 循环值，文本/secret 进编辑态）。
+    const rowEvents =
+      mode === 'edit'
+        ? undefined
+        : {
+            onClick: (): void => {
+              setFocusIndex(focus)
+              activateEntry({ kind: 'field', ns: section.ns, field })
+            },
+            onMouseEnter: (): void => {
+              setFocusIndex(focus)
+            },
+          }
+
+    let value: string
+    if (field.secret !== undefined) {
+      const configured = secrets.get(`${ns}:${field.path.join('.')}`) === true
+      if (isEditing) {
+        value = '•'.repeat(editing?.draft.length ?? 0) + '▌'
+      } else if (state.text !== '') {
+        value = `${'•'.repeat(state.text.length)} ${t('settings-secret-staged')}`
+      } else {
+        value = configured ? t('settings-secret-set') : t('settings-secret-unset')
+      }
+    } else if (isEditing) {
+      value = `${editing?.draft ?? ''}▌`
+    } else if (state.text === '') {
+      value = t('settings-field-empty')
+    } else {
+      value = state.text
+    }
+
+    // select 的值渲染成按钮 chip：用选项的本地化文案（'zh' → '中文'）而不是
+    // 存储的原始值；没命中选项时退回原始值。仅在非编辑态、值非空时提供。
+    const selectLabel = field.kind === 'select' && !isEditing && state.text !== ''
+      ? (() => {
+          const option = field.options?.find(entry => entry.value === state.text)
+          return option === undefined ? state.text : pick(option.label, option.descriptions)
+        })()
+      : undefined
+
     return (
-      <ListItem
-        key={`${ns}:${field.path.join('.')}`}
-        isFocused={isFocused || isEditing}
-        styled={false}
-        onClick={hoverable ? () => {
-          setFocusIndex(absoluteIndex)
-          activateField(ns, field)
-        } : undefined}
-      >
-        <Box flexDirection="row" flexGrow={1} height={1} overflow="hidden" width="100%">
-          <Text
-            bold={isFocused || isEditing}
-            color={isFocused || isEditing ? 'suggestion' : undefined}
-            wrap="truncate-end"
-          >
-            {truncateWidth(label, labelBudget)}
-          </Text>
-          <Box flexGrow={1} />
-          <Box
-            flexDirection="row"
-            flexShrink={0}
-            height={1}
-            overflow="hidden"
-            width={badgeBlock + valueColWidth}
-          >
-            <Box width={STAR_SLOT}>
-              <Text color={isStaged ? 'suggestion' : undefined}>
-                {isStaged ? '*' : ' '}
-              </Text>
-            </Box>
-            <Box width={GAP_SLOT}>
-              <Text> </Text>
-            </Box>
-            <Box width={valueColWidth} flexShrink={0} overflow="hidden">
-              <Text
-                color={isEditing || isFocused ? 'suggestion' : undefined}
-                dimColor={!isFocused && !isEditing && (state.text === '' || field.kind === 'boolean')}
-                wrap={isEditing ? 'truncate-start' : 'truncate-end'}
-              >
-                {value}
-              </Text>
-            </Box>
-          </Box>
-        </Box>
-      </ListItem>
+      <FieldRow
+        label={label}
+        kind={field.kind}
+        value={value}
+        selectLabel={selectLabel}
+        focused={isFocused}
+        editing={isEditing}
+        invalid={state.invalid}
+        staged={form?.isStaged(field) === true}
+        onClick={rowEvents?.onClick}
+        onMouseEnter={rowEvents?.onMouseEnter}
+      />
     )
   }
 
-  // Inline select replaces the list region without changing chrome heights.
-  if (mode === 'select' && editing !== null) {
-    const options = (editing.field.options ?? []).map(option => ({
-      value: option.value,
-      label: pick(option.label, option.descriptions),
-    }))
-    return (
-      <Box flexDirection="column" width={columns} height={rows}>
-        <Box height={1} overflow="hidden">
-          <Text bold color={statusText !== '' ? statusTone : undefined} wrap="truncate-end">{titleText}</Text>
-          <Box flexGrow={1} />
-          <Text dimColor wrap="truncate-end">{pick(editing.field.label, editing.field.descriptions)}</Text>
-        </Box>
-        {rules.has(0) && <Divider />}
-        <Box flexDirection="column" height={listHeight + extraLines + (rules.has(1) ? 1 : 0)} overflow="hidden">
-          <Select
-            options={options}
-            focusIndex={selectFocus}
-            selectedValue={editing.draft}
-            visibleOptionCount={Math.max(3, listHeight + extraLines)}
-            onPick={(index, value) => {
-              forms.get(editing.ns)?.edit(editing.field, value)
-              bump()
-              setMode('list')
-              setEditing(null)
-              setSelectFocus(index)
-            }}
-          />
-        </Box>
-        <Box height={1} overflow="hidden">
-          <Text> </Text>
-        </Box>
-        {rules.has(2) && <Divider />}
-        <Box height={1} overflow="hidden">
-          <Text dimColor wrap="truncate-end">{fieldHintLine !== '' ? truncateWidth(fieldHintLine, columns) : ' '}</Text>
-        </Box>
-        <Box height={1} overflow="hidden">
-          <Text dimColor italic><HintLine text={navHint} /></Text>
-        </Box>
-      </Box>
-    )
+  // ── Layout: a flat entry list with accounted line heights, windowed so the
+  // focused row is always on screen no matter how long the current page gets.
+  // Each section renders as a bordered card (╭─ title ─╮ / │ rows │ / ╰──╯);
+  // borders are their own entries so windowing can cut a long card anywhere. ─
+  const entries: RenderEntry[] = []
+  let focusCursor = 0
+
+  /** Badges for a section's form, rendered on the card's top border. */
+  const sectionBadges = (section: TuiSettingsSection): { text: string; color: keyof Theme }[] => {
+    const form = forms.get(section.ns)
+    const view = form?.namespace
+    const shell = form?.shell()
+    const badges: { text: string; color: keyof Theme }[] = []
+    if (view === undefined) badges.push({ text: t('settings-section-unavailable'), color: 'warning' })
+    if (view?.applies === 'restart') badges.push({ text: t('settings-badge-restart'), color: 'warning' })
+    if (shell?.dirty === true) badges.push({ text: t('settings-badge-dirty'), color: 'suggestion' })
+    if (shell?.saving === true) badges.push({ text: t('settings-badge-saving'), color: 'inactive' })
+    if (shell?.failed === true) badges.push({ text: t('settings-badge-failed'), color: 'error' })
+    return badges
   }
+
+  const addField = (section: TuiSettingsSection, field: TuiSettingsField): void => {
+    const index = focusCursor
+    focusCursor += 1
+    const isFocused = focused?.kind === 'field' && focused.ns === section.ns && focused.field === field
+    // Field rows are always exactly one line: the hint lives in the bottom
+    // help bar, so focusing a field never reflows the list below it.
+    entries.push({
+      key: `field:${section.ns}:${field.path.join('.')}`,
+      lines: 1,
+      focus: index,
+      node: <CardRow highlight={isFocused}>{renderField(section, field, index)}</CardRow>,
+    })
+  }
+
+  if (activeSection !== undefined && activeGroupSpec !== undefined) {
+    const groupFields = activeSection.fields.filter(field => field.group === activeGroupSpec.id)
+    entries.push({
+      key: 'card:group:top',
+      lines: 1,
+      node: (
+        <CardTop
+          title={pick(activeGroupSpec.title, activeGroupSpec.descriptions)}
+          subtitle={pick(activeSection.title, activeSection.descriptions)}
+          badges={sectionBadges(activeSection)}
+          columns={columns}
+        />
+      ),
+    })
+    for (const field of groupFields) addField(activeSection, field)
+    if (groupFields.length === 0) {
+      entries.push({ key: 'group:empty', lines: 1, node: <CardRow><Text dimColor>{t('settings-group-empty')}</Text></CardRow> })
+    }
+    entries.push({ key: 'card:group:bottom', lines: 1, node: <CardBottom columns={columns} /> })
+  } else {
+    sections.forEach((section, sectionIndex) => {
+      if (sectionIndex > 0) entries.push({ key: `gap:${section.ns}`, lines: 1, node: <Text> </Text> })
+      entries.push({
+        key: `card:${section.ns}:top`,
+        lines: 1,
+        node: (
+          <CardTop
+            title={pick(section.title, section.descriptions)}
+            subtitle={section.ns}
+            badges={sectionBadges(section)}
+            columns={columns}
+          />
+        ),
+      })
+      for (const field of section.fields) {
+        if (field.group === undefined) addField(section, field)
+      }
+      for (const group of section.groups ?? []) {
+        const isFocused = focused?.kind === 'group' && focused.ns === section.ns && focused.group === group
+        const index = focusCursor
+        focusCursor += 1
+        const groupRowEvents =
+          mode === 'edit'
+            ? undefined
+            : {
+                onClick: (): void => {
+                  setFocusIndex(index)
+                  activateEntry({ kind: 'group', ns: section.ns, group })
+                },
+                onMouseEnter: (): void => {
+                  setFocusIndex(index)
+                },
+              }
+        entries.push({
+          key: `group:${section.ns}:${group.id}`,
+          lines: 1,
+          focus: index,
+          node: (
+            <CardRow highlight={isFocused}>
+              <GroupRow
+                title={pick(group.title, group.descriptions)}
+                focused={isFocused}
+                onClick={groupRowEvents?.onClick}
+                onMouseEnter={groupRowEvents?.onMouseEnter}
+              />
+            </CardRow>
+          ),
+        })
+      }
+      entries.push({ key: `card:${section.ns}:bottom`, lines: 1, node: <CardBottom columns={columns} /> })
+    })
+
+    // Namespaces without a plugin-declared section are deliberately NOT
+    // listed (they used to get a read-only YAML hint; user feedback: noise).
+    if (sections.length === 0) {
+      entries.push({
+        key: 'empty',
+        lines: 1,
+        node: <Text dimColor>{t('settings-empty')}</Text>,
+      })
+    }
+  }
+
+  // Focus-follow window: keep the focused entry fully inside the viewport.
+  let totalLines = 0
+  let focusedOffset = 0
+  let focusedLines = 1
+  for (const entry of entries) {
+    if (entry.focus === effFocus) {
+      focusedOffset = totalLines
+      focusedLines = entry.lines
+    }
+    totalLines += entry.lines
+  }
+  // Chrome: title row, footer rule, notice slot, help row. The notice slot is
+  // permanent (blank while quiet) so a save/discard toast never shifts the
+  // list above it.
+  const viewport = Math.max(1, rows - 4)
+  React.useEffect(() => {
+    setWindowStart(start => {
+      if (focusedOffset < start) return focusedOffset
+      if (focusedOffset + focusedLines > start + viewport) return focusedOffset + focusedLines - viewport
+      return start
+    })
+  }, [focusedOffset, focusedLines, viewport])
+
+  let entryOffset = 0
+  const visible = entries.filter(entry => {
+    const start = entryOffset
+    entryOffset += entry.lines
+    return start >= windowStart && start + entry.lines <= windowStart + viewport
+  })
+
+  const inGroup = activeSection !== undefined && activeGroupSpec !== undefined
+  const navigationHint = inGroup ? t('settings-hint-group') : t('settings-hint-list')
+  // The bottom help bar: the focused field's hint on the left (truncated
+  // first), the navigation keys pinned to the right — a truncated hint still
+  // reads, a truncated shortcut hint hides the keys nobody can guess.
+  const focusedHint = focused?.kind === 'field' && focused.field.hint !== undefined
+    ? pick(focused.field.hint, focused.field.hintDescriptions)
+    : undefined
+  // A field whose user layer carries a value (settings.yaml) is "customized"
+  // — worth knowing, too noisy to badge every row with. It rides the help
+  // bar instead: focus the field and the suffix appears next to its hint.
+  const focusedCustomized = focused?.kind === 'field'
+    ? forms.get(focused.ns)?.field(focused.field).overridden === true
+    : false
+  const keysLine = mode === 'edit' ? t('settings-hint-edit') : navigationHint
+  const keysWidth = stringWidth(keysLine.replace(/\*\*/gu, ''))
+  const hintBudget = Math.max(0, columns - keysWidth - 2)
+  // The customized suffix is the whole point of this line — reserve its
+  // width first and truncate the hint instead, so it never becomes '已自…'.
+  const customText = focusedCustomized ? t('settings-field-customized') : undefined
+  const customWidth = customText !== undefined ? stringWidth(customText) + 3 : 0 // ' · '
+  let hintText = ''
+  if (focusedHint !== undefined && hintBudget >= 12) {
+    hintText = truncateWidth(focusedHint, Math.max(0, hintBudget - customWidth))
+    if (customText !== undefined) hintText += ` · ${customText}`
+  } else if (customText !== undefined && hintBudget >= 12) {
+    hintText = truncateWidth(customText, hintBudget)
+  }
+  // Header stats: where the focus sits in the current page's focusable list.
+  // (Auto-save means there is no unsaved-draft count to surface here.)
 
   return (
-    <Box flexDirection="column" width={columns} height={rows} overflow="hidden">
-      <Box flexShrink={0} height={1} overflow="hidden" flexDirection="row">
-        <Text bold color={statusText !== '' ? statusTone : undefined} wrap="truncate-end">{titleText}</Text>
-        <Box flexGrow={1} />
-        {host === undefined && <Text color="warning">{t('settings-unavailable')}</Text>}
-        {activeCategory !== undefined && forms.get(activeCategory.ns)?.namespace?.applies === 'restart' && (
-          <Text color="warning"> {t('settings-badge-restart')}</Text>
+    <Box flexDirection="column" width={columns} height={rows}>
+      <Box>
+        <Text bold>{t('settings-title')}</Text>
+        {inGroup && (
+          <>
+            <Text dimColor>{' › '}{pick(activeSection.title, activeSection.descriptions)}</Text>
+            <Text dimColor>{' › '}</Text>
+            <Text bold>{pick(activeGroupSpec.title, activeGroupSpec.descriptions)}</Text>
+          </>
         )}
+        <Box flexGrow={1} />
+        {host === undefined && <Text color="warning">{`${t('settings-unavailable')} `}</Text>}
+        {focusable.length > 0 && <Text dimColor>{`${effFocus + 1}/${focusable.length}`}</Text>}
       </Box>
-      {rules.has(0) && (
-        <Box flexShrink={0}>
-          <Divider width={columns} />
-        </Box>
-      )}
-      {showCategories && (
-        <Box flexDirection="row" flexShrink={0} height={1} overflow="hidden" gap={2}>
-          {categories.map((category, index) => {
-            const selected = index === effCategory
-            return (
-              <Box
-                key={category.id}
-                flexShrink={0}
-                onClick={() => {
-                  goCategory(index)
-                }}
-              >
-                <Text
-                  bold={selected}
-                  color={selected ? 'suggestion' : undefined}
-                  dimColor={!selected}
-                >
-                  {selected ? '▸ ' : '  '}{pick(category.title, category.descriptions)}
-                </Text>
-              </Box>
-            )
-          })}
-          {hasReadonly && (
-            <Box
-              flexShrink={0}
-              onClick={() => {
-                goCategory(categories.length)
-              }}
-            >
-              <Text
-                bold={onReadonlyTab}
-                color={onReadonlyTab ? 'suggestion' : undefined}
-                dimColor={!onReadonlyTab}
-              >
-                {onReadonlyTab ? '▸ ' : '  '}{t('settings-readonly-tab')}
-              </Text>
-            </Box>
-          )}
-        </Box>
-      )}
-      {showCategories && rules.has(1) && (
-        <Box flexShrink={0}>
-          <Divider width={columns} />
-        </Box>
-      )}
-      <Box flexDirection="column" height={listHeight} flexShrink={0} overflow="hidden">
-        <ink-box
-          style={{ flexDirection: 'column', height: listHeight, flexGrow: 0, flexShrink: 0, overflow: 'hidden' }}
-          onWheel={handleWheel}
-        >
-          {onReadonlyTab ? (
-            <Box flexDirection="column" height={listHeight} overflow="hidden">
-              <ListItem
-                isFocused
-                styled={false}
-                onClick={() => setReadonlyOpen(open => !open)}
-              >
-                <Text>
-                  {readonlyOpen ? '▾ ' : '▸ '}{t('settings-readonly-heading')}
-                  <Text dimColor> ({readonlyNamespaces.length})</Text>
-                </Text>
-              </ListItem>
-              {readonlyOpen && readonlyNamespaces.slice(0, Math.max(0, listHeight - 2)).map(entry => (
-                <Box key={entry.ns} height={1} flexShrink={0} overflow="hidden">
-                  <Text>{'  '}{entry.ns}</Text>
-                  {entry.applies === 'restart' && <Text color="warning"> [{t('settings-badge-restart')}]</Text>}
-                  <Text dimColor>{'  '}{valuePreview(entry.value, Math.max(12, columns - stringWidth(entry.ns) - 12))}</Text>
-                </Box>
-              ))}
-              {readonlyOpen && (
-                <Text dimColor wrap="truncate-end">
-                  {'  '}{t('settings-readonly-hint', { path: '~/.dsh/settings.yaml' })}
-                </Text>
-              )}
-            </Box>
-          ) : focusable.length === 0 ? (
-            <Text dimColor>{sections.length === 0 ? t('settings-empty') : t('settings-group-empty')}</Text>
-          ) : (
-            visibleFields.map((field, index) => renderFieldRow(field, windowStart + index))
-          )}
-        </ink-box>
-      </Box>
-      <Box flexShrink={0} height={1} overflow="hidden">
-        <Text> </Text>
-      </Box>
-      {rules.has(2) && (
-        <Box flexShrink={0}>
-          <Divider width={columns} />
-        </Box>
-      )}
-      <Box flexShrink={0} height={1} overflow="hidden">
-        <Text dimColor wrap="truncate-end">{fieldHintLine !== '' ? truncateWidth(fieldHintLine, columns) : ' '}</Text>
-      </Box>
-      <Box flexShrink={0} height={1} overflow="hidden">
-        <Text dimColor italic wrap="truncate-end"><HintLine text={navHint} /></Text>
+      {/* Literal ink-box host for the wheel — every Box flavor is a compiled
+          component whose prop list drops onWheel (SuggestionCard precedent).
+          Rolling the wheel walks the focus, and the focus-follow window
+          scrolls with it — the focus IS the viewport here. */}
+      <ink-box
+        style={{ flexDirection: 'column', flexGrow: 1, flexShrink: 1, overflow: 'hidden' }}
+        onWheel={handleWheel}
+      >
+        {visible.map(entry => (
+          <React.Fragment key={entry.key}>{entry.node}</React.Fragment>
+        ))}
+      </ink-box>
+      <Box flexGrow={1} />
+      <Divider />
+      <Text color={notice?.tone === 'error' ? 'error' : 'success'}>
+        {notice === undefined ? ' ' : `${notice.tone === 'error' ? MULTIPLICATION_X : TICK} ${notice.text}`}
+      </Text>
+      <Box>
+        <Text dimColor italic>{hintText}</Text>
+        <Box flexGrow={1} />
+        <Text dimColor italic>
+          <HintLine text={keysLine} />
+        </Text>
       </Box>
     </Box>
   )

@@ -1,5 +1,6 @@
 /**
  * PR #3 picker polish evidence: loading→loaded + hover-stable frames.
+ * Writes to DSH_TUI_ARTIFACTS or /opt/cursor/artifacts only.
  *
  * Run: node --import tsx/esm scripts/capture-pr3-picker-evidence.tsx
  */
@@ -14,9 +15,7 @@ import xtermPkg from '@xterm/headless'
 import { sleep, viewportLines } from './lib/term-test.mjs'
 
 const XTerm = xtermPkg.Terminal
-const REPO_OUT = join(process.cwd(), 'docs/evidence/pr3-settings-polish')
-const ART = '/opt/cursor/artifacts'
-mkdirSync(REPO_OUT, { recursive: true })
+const ART = process.env.DSH_TUI_ARTIFACTS ?? '/opt/cursor/artifacts'
 mkdirSync(ART, { recursive: true })
 
 async function capture(name: string, node: React.ReactNode, stdinEvents?: (stdin: PassThrough) => Promise<void>): Promise<void> {
@@ -52,7 +51,6 @@ async function capture(name: string, node: React.ReactNode, stdinEvents?: (stdin
   await sleep(120)
   if (stdinEvents) await stdinEvents(stdin)
   const plain = viewportLines(term, ROWS).join('\n')
-  writeFileSync(join(REPO_OUT, `${name}.txt`), plain + '\n')
   writeFileSync(join(ART, `${name}.txt`), plain + '\n')
   await app.unmount()
   term.dispose()
@@ -95,7 +93,7 @@ async function main(): Promise<void> {
   ]
   await capture('after_80x24_skills_loaded', React.createElement(SkillsPicker, { skills, focusIndex: 0, onPick: () => {} }))
 
-  const png = spawnSync('python3', ['scripts/txt-frames-to-png.py', '--dir', REPO_OUT], {
+  const png = spawnSync('python3', ['scripts/txt-frames-to-png.py', '--dir', ART], {
     cwd: process.cwd(),
     encoding: 'utf8',
   })
