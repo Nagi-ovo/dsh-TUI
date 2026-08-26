@@ -59,9 +59,11 @@ export function EffortSlider({
             </React.Fragment>
           ))}
         </Box>
-        {focused?.description !== undefined ? (
-          <Text dimColor>{focused.description}</Text>
-        ) : null}
+        {/* Always one description row so focus on a bare tier cannot collapse
+            the pane (medium-without-desc used to drop a line and shove the hint). */}
+        <Box height={1} overflow="hidden">
+          <Text dimColor wrap="truncate-end">{focused?.description ?? ' '}</Text>
+        </Box>
         <Text dimColor italic>
           <HintLine text={t('hint-adjust-done')} />
         </Text>
