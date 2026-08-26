@@ -100,10 +100,13 @@ function SelectDialog({
     }
   }, { isActive: true })
 
-  // Row budget mirrors the rewind picker: a described option costs 2 rows,
-  // a bare one 1; frame rows: Pane 2 + title 2 + footer 1 + slack.
+  // Uniform row height within one dialog: mixed 1/2-line options made the
+  // pane breathe as focus walked. If any option has a description, reserve
+  // the second line for every row.
+  const anyDesc = dialog.options.some(option => option.description !== undefined && option.description !== '')
+  const rowHeight = anyDesc ? 2 : 1
   const { start, end } = listWindow(
-    dialog.options.map(option => (option.description === undefined ? 1 : 2)),
+    dialog.options.map(() => rowHeight),
     focusIndex,
     Math.max(terminalRows - 10, 2),
   )
@@ -121,7 +124,7 @@ function SelectDialog({
             <ListItem
               key={option.id}
               isFocused={absoluteIndex === focusIndex}
-              description={option.description}
+              description={rowHeight === 2 ? (option.description ?? ' ') : undefined}
               showScrollUp={absoluteIndex === start && start > 0}
               showScrollDown={absoluteIndex === end - 1 && end < dialog.options.length}
               // Click = decide this option (same as Enter on it).

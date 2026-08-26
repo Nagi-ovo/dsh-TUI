@@ -30,6 +30,9 @@ export function WorkspaceFlowPicker({
 }): React.ReactNode {
   const start = Math.max(0, Math.min(focusIndex - Math.floor(WINDOW / 2), choices.length - WINDOW))
   const visible = choices.slice(start, start + WINDOW)
+  // Reserve a description slot for every row when any choice has one, so
+  // the flow pane height stays put while focus moves.
+  const anyDesc = choices.some(choice => choice.description !== undefined && choice.description !== '')
   return (
     <Pane color="permission">
       <Box flexDirection="column">
@@ -41,7 +44,7 @@ export function WorkspaceFlowPicker({
             key={choice.id}
             isFocused={start + index === focusIndex}
             isSelected={false}
-            description={choice.description}
+            description={anyDesc ? (choice.description ?? ' ') : undefined}
             disabled={busy}
             showScrollUp={index === 0 && start > 0}
             showScrollDown={index === visible.length - 1 && start + visible.length < choices.length}
