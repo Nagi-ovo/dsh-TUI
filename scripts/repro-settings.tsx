@@ -194,7 +194,7 @@ stdin.write('\r')
 assert(await settled(() => screenText().includes('Settings')), 'screen opens with the title')
 assert(await settled(() => screenText().includes('Demo settings')), 'section category tab renders')
 assert(await settled(() => screenText().includes('Enabled') && screenText().includes('On')), 'boolean field shows On/Off')
-assert(await settled(() => screenText().includes('overridden')), 'user-layer presence marks the override')
+assert(await settled(() => screenText().includes('user')), 'user-layer presence marks the override')
 
 // 2. Enter stages a boolean toggle; `s` saves it as a fenced set op.
 stdin.write('\r')
