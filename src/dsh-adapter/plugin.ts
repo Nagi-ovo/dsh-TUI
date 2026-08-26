@@ -759,7 +759,6 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       groups: [
         { id: 'status-bar', title: 'Status bar', descriptions: { zh: '底栏设置' } },
         { id: 'shortcuts', title: 'Shortcuts', descriptions: { zh: '快捷键' } },
-        { id: 'session', title: 'Session', descriptions: { zh: '会话' } },
       ],
       fields: [
         {

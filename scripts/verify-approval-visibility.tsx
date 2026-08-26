@@ -92,7 +92,7 @@ const plainText = (frames: string[]) => frames
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
 const APPROVAL_TITLE = /等待审批|Awaiting approval/
-const SETTINGS_TITLE = /Plugin settings|插件设置|No configurable plugin settings|没有可配置的插件设置/
+const SETTINGS_TITLE = /Settings|设置|No configurable plugin settings|没有可配置的插件设置/
 const QUESTION_HEADER = 'Probe question'
 
 const fakeApprovalReq = (callId: string, command: string) => ({

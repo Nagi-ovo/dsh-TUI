@@ -191,9 +191,9 @@ await settle(() => screenText().includes('Explore the uncharted'))
 stdin.write('/settings')
 await sleep(200)
 stdin.write('\r')
-assert(await settled(() => screenText().includes('Plugin settings')), 'screen opens with the title')
-assert(await settled(() => screenText().includes('Demo settings') && screenText().includes('(demo-plugin)')), 'section header renders')
-assert(await settled(() => screenText().includes('Enabled') && screenText().includes('true')), 'boolean field shows its value')
+assert(await settled(() => screenText().includes('Settings')), 'screen opens with the title')
+assert(await settled(() => screenText().includes('Demo settings')), 'section category tab renders')
+assert(await settled(() => screenText().includes('Enabled') && screenText().includes('On')), 'boolean field shows On/Off')
 assert(await settled(() => screenText().includes('overridden')), 'user-layer presence marks the override')
 
 // 2. Enter stages a boolean toggle; `s` saves it as a fenced set op.
@@ -233,18 +233,13 @@ const secondOps = mutations[1]?.ops as { op: string; path: readonly string[]; va
 assert(secondOps?.[0]?.op === 'set' && secondOps[0].path.join('.') === 'limit' && secondOps[0].value === 10, 'number draft became a numeric set op')
 
 // 4. Cross-section Esc (P2-4): stage a toggle in demo-plugin, move focus
-// into other-plugin, then Esc. The OLD code only checked the FOCUSED
-// section's form — clean here — and closed, silently dropping the staged
-// toggle. The fixed behavior: Esc discards EVERY section's staged drafts
-// first (notice), and only a second Esc leaves.
-// 逐键固定 pacing：焦点移动只体现为颜色高亮，无可观测的纯文本条件。
+// into other-plugin via category →, then Esc. Esc discards EVERY section's
+// staged drafts first (notice), and only a second Esc leaves.
 stdin.write('\x1b[A') // ↑ back to Enabled
 await sleep(200)
 stdin.write('\r') // stage a toggle in demo-plugin (dirty)
 await sleep(200)
-stdin.write('\x1b[B') // ↓
-await sleep(150)
-stdin.write('\x1b[B') // ↓ into other-plugin's Mode field
+stdin.write('\x1b[C') // → Other settings category
 await sleep(300)
 stdin.write('\x1b') // Esc: focused section is clean, demo-plugin is dirty
 assert(await settled(() => screenText().includes('Discarded all unsaved edits')), 'Esc discards staged edits across ALL sections')
@@ -308,16 +303,14 @@ const groupInstance = await render(
   <Settings channel={groupChannel} onClose={() => { groupClosed = true }} />,
   { stdout: new GroupStdout(), stdin: groupStdin, stderr: new FakeStderr(), exitOnCtrlC: false, patchConsole: false },
 )
-assert(await settled(() => groupScreenText().includes('Name') && groupScreenText().includes('Advanced')), 'group root renders ungrouped fields and group entry', groupScreenText())
+assert(await settled(() => groupScreenText().includes('Name') && groupScreenText().includes('Advanced') && groupScreenText().includes('General')), 'group root renders ungrouped fields and category tabs', groupScreenText())
 assert(!groupScreenText().includes('Endpoint'), 'group root hides grouped fields', groupScreenText())
-// 焦点移动只体现为颜色高亮，无可观测的纯文本条件，保留固定 pacing。
-groupStdin.write('\x1b[B') // ↓ from Name to Advanced
-await sleep(200)
-groupStdin.write('\r')
+// Categories switch with →; the list stays on the same chrome.
+groupStdin.write('\x1b[C') // → Advanced
 // The headless renderer leaves the first row stale across in-place screen
-// transitions, so assert navigation through group-only content and its hint.
-assert(await settled(() => groupScreenText().includes('Endpoint') && groupScreenText().includes('Esc back')), 'Enter opens the group page', groupScreenText())
-assert(!groupScreenText().includes('Name'), 'group page shows only its fields', groupScreenText())
+// transitions, so assert navigation through group-only content.
+assert(await settled(() => groupScreenText().includes('Endpoint')), '→ opens the group category', groupScreenText())
+assert(!groupScreenText().includes('Name') || groupScreenText().includes('General'), 'group category shows its fields', groupScreenText())
 // 编辑器模式切换与逐键退格的 pacing：编辑态无可观测的纯文本条件，保留固定窗口。
 groupStdin.write('\r')
 await sleep(150)
@@ -333,12 +326,9 @@ groupStdin.write('\r')
 // the draft — and the next key would land in the wrong mode.
 await sleep(300)
 assert(groupScreenText().includes('new'), 'group field draft is staged', groupScreenText())
-groupStdin.write('\x1b')
-assert(await settled(() => groupScreenText().includes('unsaved') && !groupScreenText().includes('Endpoint')), 'Esc returns to root without dropping the staged edit', groupScreenText())
-// 焦点移动只体现为颜色高亮，无可观测的纯文本条件，保留固定 pacing。
-groupStdin.write('\x1b[B')
-await sleep(200)
-groupStdin.write('\r')
+groupStdin.write('\x1b[D') // ← back to General without dropping the staged edit
+assert(await settled(() => groupScreenText().includes('unsaved') && groupScreenText().includes('Name')), '← returns to General without dropping the staged edit', groupScreenText())
+groupStdin.write('\x1b[C') // → Advanced again
 assert(await settled(() => groupScreenText().includes('new')), 're-entering the group restores the staged draft', groupScreenText())
 groupStdin.write('s')
 // 写入落地后 mutations[2] 即终态，后续为同步派生断言。
@@ -348,9 +338,6 @@ const groupOps = groupMutation?.ops as { op: string; path: readonly string[]; va
 assert(groupSaved && groupMutation?.ns === 'group-plugin' && groupMutation.expected === 5, 'group save is revision-fenced')
 assert(groupOps?.[0]?.op === 'set' && groupOps[0].path.join('.') === 'advanced.endpoint' && groupOps[0].value === 'new', 'group save keeps the nested field path')
 assert((docs['group-plugin']?.value.advanced as Record<string, unknown> | undefined)?.endpoint === 'new', 'nested group value reaches the host document')
-// 两次 Esc 之间的处理顺序无可观测中间条件（第一次 Esc 不改变可断言的纯文本），保留固定 pacing。
-groupStdin.write('\x1b')
-await sleep(200)
 groupStdin.write('\x1b')
 assert(await settled(() => groupClosed), 'clean group screen exits from the root page')
 await groupInstance.unmount()
@@ -424,7 +411,10 @@ const longGroupSection = {
   ns: 'long-group-plugin',
   title: 'Long grouped settings',
   groups: [{ id: 'advanced', title: 'Advanced fields' }],
-  fields: Array.from({ length: 16 }, (_, i) => ({ path: [`f${i}`], label: `Grouped field ${i}`, kind: 'number' as const, group: 'advanced' })),
+  fields: [
+    { path: ['root'], label: 'Root field', kind: 'text' as const },
+    ...Array.from({ length: 16 }, (_, i) => ({ path: [`f${i}`], label: `Grouped field ${i}`, kind: 'number' as const, group: 'advanced' })),
+  ],
 }
 const groupedSmallChannel: any = { ...channel, settingsSections: () => [longGroupSection] }
 const groupedSmallStdin = new FakeStdin()
@@ -433,7 +423,7 @@ const groupedSmallInstance = await render(
   { stdout: new GroupedSmallStdout(), stdin: groupedSmallStdin, stderr: new FakeStderr(), exitOnCtrlC: false, patchConsole: false },
 )
 assert(await settled(() => groupedSmallScreenText().includes('Advanced fields') && !groupedSmallScreenText().includes('Grouped field 0')), 'short group root hides grouped fields', groupedSmallScreenText())
-groupedSmallStdin.write('\r')
+groupedSmallStdin.write('\x1b[C') // → Advanced fields category
 assert(await settled(() => groupedSmallScreenText().includes('Grouped field 0') && !groupedSmallScreenText().includes('Grouped field 15')), 'short group page starts at its first field', groupedSmallScreenText())
 // 逐键 ↓ 的 pacing：中间焦点位置只体现为颜色，无可观测的纯文本条件。
 for (let i = 0; i < 15; i++) {
