@@ -534,6 +534,9 @@ export function Settings({
 
   // Right-align values in a shared column so On/Off / labels don't dance
   // as focus moves between short and long values (CC /config taste).
+  // Always reserve room for the longest badge stack (`invalid` / `user` / `*`)
+  // so staging a toggle cannot widen the column and shove every value left.
+  const badgeBudget = stringWidth(`${t('settings-field-invalid')} ${t('settings-badge-override')} * `)
   const valueColWidth = (() => {
     if (activeCategory === undefined || focusedForm === undefined) return 10
     let widest = 4
@@ -546,12 +549,7 @@ export function Settings({
         cursor: editing?.cursor,
         secretConfigured: secrets.get(`${activeCategory.ns}:${field.path.join('.')}`) === true,
       })
-      const badges: string[] = []
-      if (state.invalid) badges.push(t('settings-field-invalid'))
-      if (state.overridden) badges.push(t('settings-badge-override'))
-      if (focusedForm.isStaged(field) && !isEditing) badges.push('*')
-      const badgeText = badges.length > 0 ? `${badges.join(' ')} ` : ''
-      widest = Math.max(widest, stringWidth(badgeText) + stringWidth(value))
+      widest = Math.max(widest, badgeBudget + stringWidth(value))
     }
     // Leave room for ❯ + label; never let the value column eat the name.
     return Math.max(8, Math.min(widest, Math.max(8, columns - 24)))

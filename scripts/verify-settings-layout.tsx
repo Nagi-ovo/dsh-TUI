@@ -141,6 +141,21 @@ check('field hint reserved in footer', (() => {
   return /Fullscreen/.test(footer) || /whole screen|vim\/less|native scrollback/.test(footer)
 })())
 
+stdin.write('\r') // toggle → staged *
+await sleep(200)
+const toggled = chrome(term)
+check('value ends stable after toggle badge', (() => {
+  const ends = (plain: string) => plain.split('\n')
+    .map(line => {
+      const m = line.match(/^(.*?)\s+(English|Off|On)\s*$/)
+      return m ? m[0].replace(/\s+$/u, '').length : -1
+    })
+    .filter(n => n > 0)
+  const a = ends(open.plain)
+  const b = ends(toggled.plain)
+  return a.length > 0 && b.length > 0 && a.every((n, i) => n === b[i])
+})())
+
 stdin.write('\x1b[C') // → Status bar
 await sleep(200)
 const tabbed = chrome(term)
