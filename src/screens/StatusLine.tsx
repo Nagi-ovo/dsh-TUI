@@ -118,7 +118,7 @@ export function StatusLine({
    * than as a count in the corner. Absent in headless embeds, where nothing
    * folds the event log.
    */
-  wake?: { band: WaveBand; hint?: string; tick: number }
+  wake?: { band: WaveBand; hint?: string; active?: boolean }
 }) {
   const { columns } = useTerminalSize()
   const [themeName] = useTheme()
@@ -496,7 +496,7 @@ export function StatusLine({
             {showActivity ? trailer : null}
           </Box>
           {showTrajectory && wake !== undefined ? (
-            <MiniWake band={wake.band} hint={wake.hint} tick={wake.tick} />
+            <MiniWake band={wake.band} hint={wake.hint} active={wake.active} />
           ) : null}
         </Box> : null}
       </Box>

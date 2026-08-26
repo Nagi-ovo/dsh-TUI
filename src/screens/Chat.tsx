@@ -91,7 +91,6 @@ import { statSync } from 'node:fs'
 import { setClipboard } from '../ink/termio/osc.js'
 import { TerminalWriteContext } from '../ink/useTerminalNotification.js'
 import instances from '../ink/instances.js'
-import { useAnimationFrame } from '../ink/hooks/use-animation-frame.js'
 import { TrajectoryScene } from './TrajectoryScene.js'
 import { extendTrajectory, projectWave, type TrajBuild } from '../dsh-adapter/trajectory/index.js'
 import { miniWakeWidth } from '../components/trajectory/MiniWake.js'
@@ -182,6 +181,11 @@ let fallbackApprovalStore: ApprovalStore | undefined
 let fallbackDialogStore: TuiDialogStore | undefined
 let fallbackStatusStore: TuiStatusStore | undefined
 
+/** Test-only: count Chat function-body executions (DSH_TUI_CHAT_RENDER_PROBE=1). */
+let chatRenderProbeCount = 0
+export function readChatRenderProbe(): number { return chatRenderProbeCount }
+export function resetChatRenderProbe(): void { chatRenderProbeCount = 0 }
+
 export function Chat({
   channel,
   questionStore,
@@ -236,6 +240,7 @@ export function Chat({
    */
   trajectorySeen?: boolean
 }) {
+  if (process.env.DSH_TUI_CHAT_RENDER_PROBE === '1') chatRenderProbeCount += 1
   const writeRaw = React.useContext(TerminalWriteContext)
   // Re-render whenever the channel mutates; rows/status are read fresh below.
   React.useSyncExternalStore(channel.subscribe, () => channel.version)
@@ -1993,7 +1998,6 @@ export function Chat({
     // oxlint-disable-next-line react-hooks/exhaustive-deps
     [trajectory.nodes, trajectory.counts.rows, wakeWidth],
   )
-  const [wakeTickRef, wakeTime] = useAnimationFrame(channel.working ? 120 : null)
   /**
    * The key hint beside the strip retires itself once the trajectory has been
    * opened — teaching belongs in the first minute, not on every frame forever.
@@ -3041,7 +3045,7 @@ export function Chat({
       : channel.rows.find(row => row.id === anchorUserRowId)?.text ?? null
 
   return (
-    <Box ref={wakeTickRef} flexDirection="column" flexGrow={1} width="100%">
+    <Box flexDirection="column" flexGrow={1} width="100%">
       {!isSticky && anchorUserText && (
         <StickyPromptHeader
           text={anchorUserText}
@@ -3300,7 +3304,7 @@ export function Chat({
               : {
                   band: wakeBand,
                   hint: trajectorySeen ? undefined : `${modLabel}t`,
-                  tick: Math.floor(wakeTime / 120),
+                  active: channel.working,
                 }
           }
         />

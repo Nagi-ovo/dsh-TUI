@@ -27,6 +27,10 @@ function removeStaleHistoryLock(): boolean {
   try {
     const ageMs = Date.now() - statSync(HISTORY_LOCK).mtimeMs
     if (ageMs < STALE_LOCK_MS) return false
+    // Re-stat immediately before removal: another writer may have acquired a
+    // fresh lock between our first stat and rmSync (TOCTOU).
+    const ageMsNow = Date.now() - statSync(HISTORY_LOCK).mtimeMs
+    if (ageMsNow < STALE_LOCK_MS) return false
     rmSync(HISTORY_LOCK, { recursive: true, force: true })
     return true
   } catch (error) {

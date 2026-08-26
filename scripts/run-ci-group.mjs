@@ -70,6 +70,9 @@ const GROUPS = {
 // 曾以 120ms/卡片持续驱动 React commit，N 张相位错开合成 ~30ms
 // 均匀帧 cadence。
     ["verify-subagent-settle", ['node', '--import', 'tsx/esm', 'scripts/verify-subagent-settle.tsx']],
+// MiniWake 动画时钟不得每 120ms 重渲染整棵 Chat 树（working 时空闲
+// chatRenderProbe 必须为 0，paint 帧仍 ≥4）。
+    ["verify-miniwake-chat-stable", ['node', '--import', 'tsx/esm', 'scripts/verify-miniwake-chat-stable.tsx']],
 // 子代理流投影批处理：chunk 风暴的 snapshot+行投影必须按 16ms 帧
 // 对齐合并（token 率 100-300/s 下的全量深拷贝热路径），且生命周期
 // 事件（tool/call、subagent/end）保持同步立即可见。
