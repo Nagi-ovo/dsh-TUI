@@ -2,8 +2,8 @@ Settings · Discarded all unsaved edits
 ────────────────────────────────────────────────────────────────────────────────
   General    Status bar  ▸ Shortcuts
 ────────────────────────────────────────────────────────────────────────────────
-❯ Open model picker                                                       ctrl+p
-                                                                                
+❯ Open model picker                                         ctrl+p 
+                                                               
 
 
 

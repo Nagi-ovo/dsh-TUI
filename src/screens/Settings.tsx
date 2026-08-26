@@ -526,7 +526,7 @@ export function Settings({
     if (focused === undefined || focusedHint === undefined) return ''
     const parts = [pick(focused.label, focused.descriptions)]
     if (focusedState?.overridden === true) parts.push(t('settings-badge-override'))
-    if (focusedState?.invalid === true) parts.push('!')
+    if (focusedState?.invalid === true) parts.push(t('settings-field-invalid'))
     parts.push(focusedHint)
     return parts.join(' · ')
   })()
@@ -542,10 +542,11 @@ export function Settings({
     columns,
   )
 
-  // One reserved dirty-star column immediately before the value; override/source
-  // lives in the footer hint, never as a mid-row gutter badge.
-  const STAGED_SLOT = 1
-  const badgeBlock = STAGED_SLOT
+  // Pinned right block: 1-col dirty star, 1-col gap, then value — star never
+  // rides the value width (* On /   Off /   English at fixed columns).
+  const STAR_SLOT = 1
+  const GAP_SLOT = 1
+  const badgeBlock = STAR_SLOT + GAP_SLOT
   const valueColWidth = Math.max(12, Math.min(20, Math.floor(columns * 0.26)))
   const labelBudget = Math.max(8, columns - 2 - badgeBlock - valueColWidth - 2)
 
@@ -590,18 +591,24 @@ export function Settings({
             height={1}
             overflow="hidden"
             width={badgeBlock + valueColWidth}
-            justifyContent="flex-end"
           >
-            <Text color={isStaged ? 'suggestion' : undefined}>
-              {isStaged ? '*' : ' '}
-            </Text>
-            <Text
-              color={isEditing || isFocused ? 'suggestion' : undefined}
-              dimColor={!isFocused && !isEditing && (state.text === '' || field.kind === 'boolean')}
-              wrap="truncate-end"
-            >
-              {value}
-            </Text>
+            <Box width={STAR_SLOT}>
+              <Text color={isStaged ? 'suggestion' : undefined}>
+                {isStaged ? '*' : ' '}
+              </Text>
+            </Box>
+            <Box width={GAP_SLOT}>
+              <Text> </Text>
+            </Box>
+            <Box width={valueColWidth} flexShrink={0} overflow="hidden">
+              <Text
+                color={isEditing || isFocused ? 'suggestion' : undefined}
+                dimColor={!isFocused && !isEditing && (state.text === '' || field.kind === 'boolean')}
+                wrap={isEditing ? 'truncate-start' : 'truncate-end'}
+              >
+                {value}
+              </Text>
+            </Box>
           </Box>
         </Box>
       </ListItem>
