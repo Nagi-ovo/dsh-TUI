@@ -509,11 +509,11 @@ export function AssistantToolUseMessage({
               <Text dimColor={!hovered}>{elapsedText}</Text>
             </Box>
           )}
-          {hovered && (
-            <Box flexShrink={0}>
-              <Text dimColor>{isExpanded ? '▴' : '▾'}</Text>
-            </Box>
-          )}
+          {/* Always reserve the ▾/▴ column — hover only swaps the glyph so
+              the header never gains a cell and shoves the title. */}
+          <Box flexShrink={0} width={1} height={1} overflow="hidden">
+            <Text dimColor>{hovered ? (isExpanded ? '▴' : '▾') : ' '}</Text>
+          </Box>
         </Box>
         {useSplitDiff && view?.card === 'diff' ? (
           <Box flexDirection="row">

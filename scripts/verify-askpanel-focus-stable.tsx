@@ -34,10 +34,16 @@ async function main(): Promise<void> {
     ],
   }
 
-  async function frame(focusInput: boolean): Promise<{ customY: number; hintY: number; alphaY: number; plain: string }> {
-    const term = new XTerm({ cols: 80, rows: 24, scrollback: 20, allowProposedApi: true })
+  async function frame(opts: {
+    focusInput: boolean
+    multiSelect?: boolean
+    withBack?: boolean
+    cols?: number
+  }): Promise<{ customY: number; hintY: number; alphaY: number; hintSpan: number; plain: string }> {
+    const cols = opts.cols ?? 80
+    const term = new XTerm({ cols, rows: 24, scrollback: 20, allowProposedApi: true })
     class FakeStdout extends Writable {
-      columns = 80
+      columns = cols
       rows = 24
       isTTY = true
       _write(chunk: unknown, _e: BufferEncoding, cb: () => void) { term.write(String(chunk), cb) }
@@ -56,36 +62,47 @@ async function main(): Promise<void> {
     const inst = await render(
       React.createElement(AskUserQuestionPanel as any, {
         question,
-        multiSelect: false,
+        multiSelect: opts.multiSelect === true,
         onAnswer: () => {},
         onCancel: () => {},
+        onBack: opts.withBack === true ? () => {} : undefined,
       }),
       { stdout: new FakeStdout() as any, stdin: stdin as any, stderr: new FakeStderr() as any, exitOnCtrlC: false, patchConsole: false },
     )
     await sleep(100)
-    if (focusInput) {
-      stdin.write('\x1b[B') // Alpha → Beta
+    if (opts.focusInput) {
+      stdin.write('\x1b[B')
       await sleep(40)
-      stdin.write('\x1b[B') // Beta → custom input
+      stdin.write('\x1b[B')
       await sleep(80)
     }
     const lines = viewportLines(term, 24)
     const plain = lines.join('\n')
     const alphaY = lines.findIndex(l => /Alpha/.test(l))
     const customY = lines.findIndex(l => /自定义回答|Custom answer/.test(l))
-    const hintY = lines.findIndex(l => /↑\/↓/.test(l) || /Esc/.test(l))
+    // Footer hint only — do not match the custom-input placeholder「直接输入…」.
+    const hintY = lines.findIndex(l => /Esc/.test(l) && (/Enter/.test(l) || /↑/.test(l) || /↓/.test(l)))
+    const hintSpan = hintY < 0 ? -1 : 1
     await inst.unmount()
     term.dispose()
-    return { customY, hintY, alphaY, plain }
+    return { customY, hintY, alphaY, hintSpan, plain }
   }
 
-  const a = await frame(false)
-  const b = await frame(true)
+  const a = await frame({ focusInput: false })
+  const b = await frame({ focusInput: true })
   check('custom row present', a.customY >= 0 && b.customY >= 0, `a=${a.customY} b=${b.customY}`)
   check('hint present', a.hintY >= 0 && b.hintY >= 0)
   check('custom row does not jump on focus', a.customY === b.customY, `${a.customY}→${b.customY}`)
   check('hint row does not jump on focus', a.hintY === b.hintY, `${a.hintY}→${b.hintY}`)
   check('option row does not jump on focus', a.alphaY === b.alphaY, `${a.alphaY}→${b.alphaY}`)
+
+  // Multi + back + narrower width: option hint is longer than input hint —
+  // without height={1} truncate this used to drop a line on Tab to input.
+  const m0 = await frame({ focusInput: false, multiSelect: true, withBack: true, cols: 64 })
+  const m1 = await frame({ focusInput: true, multiSelect: true, withBack: true, cols: 64 })
+  check('multi hint row stable on focus', m0.hintY === m1.hintY && m0.hintY >= 0, `${m0.hintY}→${m1.hintY}`)
+  check('multi option row stable on focus', m0.alphaY === m1.alphaY, `${m0.alphaY}→${m1.alphaY}`)
+  check('multi custom row stable on focus', m0.customY === m1.customY, `${m0.customY}→${m1.customY}`)
 
   if (failed > 0) {
     console.log('--- focus option ---\n' + a.plain)

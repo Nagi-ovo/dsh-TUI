@@ -162,6 +162,7 @@ check('DEFAULT_STATUS_BAR keeps the intended compact defaults', () => {
     contextUsage: true,
     cache: true,
     tokens: false,
+    cost: true,
     tps: false,
     gitBranch: false,
     sessionTitle: false,
