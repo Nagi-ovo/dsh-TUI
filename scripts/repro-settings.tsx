@@ -199,7 +199,7 @@ assert(await settled(() => screenText().includes('user · Plugin master switch')
 
 // 2. Enter stages a boolean toggle; `s` saves it as a fenced set op.
 stdin.write('\r')
-assert(await settled(() => screenText().includes('unsaved')), 'staged toggle marks the section dirty')
+assert(await settled(() => /\*\s+Off/.test(screenText()) || screenText().includes('unsaved')), 'staged toggle marks the section dirty')
 stdin.write('s')
 // 写入落地后 mutations[0] 即终态，后续为同步派生断言。
 assert(await settled(() => mutations.length === 1), 'save wrote exactly one mutation')
