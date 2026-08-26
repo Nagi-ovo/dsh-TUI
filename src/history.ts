@@ -15,13 +15,8 @@ export type HistoryEntry = {
 }
 
 const HISTORY_LIMIT = 200
-<<<<<<< HEAD
 const LOCK_RETRY_LIMIT = 400
 const LOCK_RETRY_DELAY_MS = 8
-=======
-const LOCK_RETRY_LIMIT = 120
-const LOCK_RETRY_DELAY_MS = 10
->>>>>>> 908a27a (fix(history): harden lock retries for parallel append CI flake)
 const STALE_LOCK_MS = 30_000
 
 function sleepSync(ms: number): void {
