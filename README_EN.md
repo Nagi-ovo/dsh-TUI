@@ -332,7 +332,8 @@ chat / tool base events ──> persisted Session log ──> TUI / Web
 - **Context progress bar**: based on the pi-nano-context algorithm (largest-remainder
   segmented coloring + multi-level condensed readouts).
 - **TPS meter**: based on pi-tps-meter — a streaming 1/8-block gauge, historical
-  min-max sparkline, and speed-based semantic colors (≥50 green / ≥20 yellow / <20 red).
+  min-max sparkline in the same bracketed track width (so working↔idle cannot
+  shove StatusLine neighbors), and speed-based semantic colors (≥50 green / ≥20 yellow / <20 red).
 - **working-activity ecosystem**: the working-status line reuses the pure state machine of
   [dsh-working-activity](https://github.com/ccch1mneyyy/working-activity),
   deriving it in-process from base session events without writing UI state into the shared log.
