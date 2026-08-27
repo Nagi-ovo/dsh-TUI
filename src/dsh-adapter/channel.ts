@@ -5394,7 +5394,7 @@ export function createChannel(
    * Rebuild the merged slash-command list: built-in locals, then registry
    * commands (plan/goal/…), then user-invocable skills from the DSH skill
    * registry (issue #86 — filesystem-discovered skills must appear in the
-   * `/` menu and Tab completion, like /audit and /review). Skill entries
+   * `/` menu and Tab completion, like /my-skill). Skill entries
    * are completion-only: dispatch falls through to the model as plain text,
    * where dsh-tool-skill's pre-step hook injects the skill body — the same
    * path a hand-typed `/skill-name` takes. Registry and skill reads are

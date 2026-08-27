@@ -70,7 +70,8 @@ the interface, and removing it leaves no core modifications behind.
   double-click word select, `Ctrl+C` to copy the selection).
 - **Official DSH integrations**: agent presets, skills, MCP, goals, todos,
   subagents, and `ask_user_question` are connected through existing services
-  and registries.
+  and registries. `/skills` shows skills discovered from the active profile,
+  user, and project; dsh-TUI does not preinstall general-purpose skills.
 - **Designed for long sessions**: event-driven projection, differential output,
   message virtualization, replay coalescing, and bounded caches prevent render
   cost and memory from growing without limit; fingerprint-memoized hot paths
@@ -258,7 +259,7 @@ so keep using `Ctrl`.
 | Status | `/context` loaded-context details · `/status` session info · `/cost` token usage · `/doctor` environment self-check · `/config` configuration sources · `/init` create AGENTS.md · `/settings` settings panel (namespace read/edit) |
 | Model | `/model` two-level picker (a pinned **Recently used** group first — the last 10 switched models, persisted at `~/.dsh-tui/model-recents.json` — then provider groups; Enter drills into a group's models; a single provider with no recents skips straight to the list; **switching = fork continuation, history preserved**) · `/effort` reasoning effort (slider / `status` / `<id>`) · `/preset` agent preset (**cannot switch once the session has started** — blank-only) · `/thinking` thinking display · `/tokens` token details · `/activity` working animation (`frames <name>` / `status`) · `/theme` theme picker · `/color` (bare opens the palette picker; `<name>` sets directly; `status`/`reset`) session accent color (input border + session-name chip at the top-right, per-session; chip off by default, enable in `/settings`) · `/lang` zh/en UI switch (also selectable in `/settings`) |
 | Accounts/Policy | `/provider` add a model provider (includes the bundled dsh-auth **subscription OAuth sign-in** branch — ChatGPT / Claude / Grok, no API key; same source as `/auth status\|login\|logout`) · `/login` credential & account status · `/logout` logout notes · `/permissions` permission notes · `/add-dir` file-policy scope · `/hooks` · `/mcp` |
-| Skills | `/audit` code audit · `/bug` bug report · `/review` code review · `/practice` coding practice · `/pr-comments` PR comments · `/release-notes` release notes · `/vuln-check` vulnerability check |
+| Skills | `/skills` lists skills discovered by DSH; user-invocable skills join the `/` menu as `/name` |
 | Other | `/agents` subagent list · `/skills` skills directory · `/plugins check <path>` plugin diagnostics · `/update` auto-update and restart · `/vim` vim editing mode toggle · `/terminal-setup` · `/connect` · `/help` · `/exit` (aliases `/quit` `/q`) |
 | Registry | `/plan` `/goal` `/feedback` `/permission` (DSH command-registry plugins, merged into the `/` menu automatically with the plugin) |
 

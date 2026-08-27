@@ -30,8 +30,8 @@
 适用于在本仓库工作的所有人与编码 Agent。
 
 `@deepseek-harness-tui/dsh-tui` 是单包、纯 ESM 的 TypeScript 项目：为 DeepSeek Harness 提供
-React 终端 UI 前门（通过 Cordis 挂载）。包内拥有 TUI、本地命令面、打包技能
-以及移植的 Ink/Yoga 渲染器；Agent、会话、模型、工具、持久化与策略域由
+React 终端 UI 前门（通过 Cordis 挂载）。包内拥有 TUI、本地命令面
+以及移植的 Ink/Yoga 渲染器；Agent、会话、模型、工具、技能、持久化与策略域由
 DeepSeek Harness 拥有，TUI 只消费它们。
 
 做大改动前，先读 `package.json`、相关 README 章节和你将要编辑的每个源文件。
@@ -60,7 +60,7 @@ DeepSeek Harness 拥有，TUI 只消费它们。
 - `src/cc/`：为 Claude Code 风格 UI 适配的终端格式化与呈现辅助。
 - `src/*Prefs.ts`、`src/customTheme.ts`、`src/sessionHistory.ts`：持久化的
   用户偏好与 `~/.dsh-tui` 下的本地会话元数据。
-- `skills/*/SKILL.md`：随 npm 包分发的技能，由 `src/dsh-adapter/packaged-skills.ts` 注册。
+- `.agents/skills/*/SKILL.md`：仅供仓库维护者使用的项目技能，由 DSH 文件系统 provider 发现，不随 npm 包分发。
 - `cordis.patch.yml`：profile 安装时使用的包级 bundle 覆盖层。行的顺序、行 ID、
   被禁用的 host 行、insert/override 语义都很关键。
 - `cordis.yml`：直接 Cordis/DSH 启动的完整裸组合示例。
@@ -260,8 +260,8 @@ TypeScript 源的脚本在头部声明 `node --import tsx/esm <script>` 形式�
 - 本地 slash 命令在 `src/commands.ts` 声明、`Chat.tsx` 分发；注册表命令运行时
   合并。新增命令时同步更新声明、分发、帮助/文档与 i18n 描述（`src/i18n.ts` 的
   `cmd-desc-<name>`，只写 zh——en 回退声明原文）。
-- 内置技能命令不进本地名单：打包技能经注册表注册为确定性直调命令（#496），
-  命令名必须等于 SKILL.md 的注册名（kebab-case），否则会被撞名过滤拦下。
+- 技能命令不进本地名单：DSH 发现的 user-invocable 技能经注册表合并为直调命令，
+  命令名必须是可解析的 kebab-case，且不能与本地命令撞名。
 - `ask_user_question` 必须经 `QuestionStore` 串行化；并发问题刻意 FIFO 呈现，
   结束后汇总。
 
@@ -303,7 +303,7 @@ TypeScript 源的脚本在头部声明 `node --import tsx/esm <script>` 形式�
 | 主题契约或持久化主题行为 | `src/theme.ts`、所有色板、主题 provider/picker、自定义主题解析器、主题验证、双 README |
 | 会话/channel 行为 | `src/dsh-adapter/channel.ts`、受影响的 UI 投影、编译产物、聚焦 channel/回放回归 |
 | 渲染器/布局行为 | `src/ink/` 或 Yoga 源、编译产物、CI 回归、聚焦滚动/resize/PTY 探针 |
-| 打包技能 | `skills/<name>/SKILL.md`、`src/dsh-adapter/packaged-skills.ts` 假设、暴露为 slash 命令时的提示/映射 |
+| 技能发现或呈现 | DSH adapter、slash 命令合并、`/skills` 与相关回归；项目维护技能放 `.agents/skills/` 且不得加入 npm 包 |
 | 用户可见的文档化行为 | 中英文 README，外加适用的配置注释/帮助文本 |
 | 包版本或依赖 | `package.json`、`pnpm-lock.yaml`、适用时的生成/发布产物；不要顺手搅动旧 npm 锁文件 |
 

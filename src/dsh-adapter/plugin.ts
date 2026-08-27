@@ -14,7 +14,6 @@ import { createChildStderrReporter, installChildStderrGuard } from './childStder
 import { logForDebugging } from '../utils/debug.js'
 import { QuestionStore } from './questions.js'
 import { ApprovalStore } from './approvals.js'
-import { registerPackagedSkills } from './packaged-skills.js'
 import { registerPromptDebug } from './promptDebug.js'
 import { readActivityFrames } from '../activityPrefs.js'
 import { commitFullscreenFactoryMigration, planFullscreenFactoryMigration, readAppliedMigrations } from '../migrationPrefs.js'
@@ -254,9 +253,6 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     return filterMinimalPresetTools(assembled, presetId)
   })
   const questionStore = new QuestionStore()
-  // Packaged skills (/audit, /bug, …): contribute them through the host's
-  // skill registry so they resolve with zero manual copying.
-  registerPackagedSkills(ctx)
   // `/debug-prompt` snapshots the final provider-neutral request at the
   // llm/stream boundary, after every prompt and tool contributor has run.
   registerPromptDebug(ctx)

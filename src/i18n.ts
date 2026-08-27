@@ -1003,15 +1003,6 @@ const dict = {
   'cmd-desc-skills': { zh: '列出所有可用技能' },
   'cmd-desc-plugins': { zh: '显示插件契约、授权与台账诊断' },
   'cmd-desc-update': { zh: '更新 dsh-tui 并重启' },
-  // Built-in skills（注册名与打包 SKILL.md 对齐；这些键经
-  // localizedDescription 的 cmd-desc-<name> 回退服务于直调命令条目）
-  'cmd-desc-audit': { zh: '对当前项目做全面代码审计' },
-  'cmd-desc-bug': { zh: '记录一份 bug 报告' },
-  'cmd-desc-practice': { zh: '与 dsh-tui 进行编程练习' },
-  'cmd-desc-review': { zh: '对当前项目做全面代码评审' },
-  'cmd-desc-pr-comments': { zh: '审查拉取请求评论' },
-  'cmd-desc-release-notes': { zh: '生成发布说明' },
-  'cmd-desc-vuln-check': { zh: '运行安全漏洞检查' },
   // Misc
   'cmd-desc-vim': { zh: '切换 vim 模式' },
   'cmd-desc-terminal-setup': { zh: '查看终端配置建议' },
