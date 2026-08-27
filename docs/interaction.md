@@ -340,7 +340,7 @@ transcript。
 | 会话 | `/new`、`/resume`、`/rename`、`/recap`（最近活动摘要 + 建议标题一键应用；设置 `recapOnOpen` 开启时打开会话自动出分隔线 + `回顾：` 摘要行，发送新消息后消失，默认开）、`/workspace resume|rename|open`、`/clear`、`/compact`、`/export`、`/btw`、`/trace`（轨迹场景，亦可 `Ctrl+T`）、`/rewind`（时间回溯，同空输入双击 `Esc`） |
 | 状态 | `/context`、`/status`、`/cost`、`/balance`（DeepSeek 官方余额：摘要行 + hover 明细，点击刷新）、`/config`、`/doctor`、`/init`、`/agents`、`/settings` |
 | 模型与显示 | `/model`、`/effort`、`/thinking`、`/tokens`、`/activity`、`/preset`、`/theme`、`/color`（会话强调色：无参打开调色板选择器，`<名>` 直接设置，`status`/`reset`；输入框边框 + 右上角会话名标签，按会话保存；标签默认关闭，`/settings` 可开）、`/lang` |
-| 账号与策略 | `/provider`、`/login`、`/logout`、`/permissions`、`/add-dir`、`/hooks`、`/mcp`、`/skills`、`/plugins`（`check <路径>` 校验插件清单） |
+| 账号与策略 | `/provider`、`/login`、`/logout`、`/permissions`、`/add-dir`、`/hooks`、`/mcp`、`/plugins`（`check <路径>` 校验插件清单） |
 | Skills | `/skills` 浏览 DSH 从当前 profile、用户与项目发现的技能；可直调技能以 `/name` 加入菜单 |
 | 其他 | `/update`、`/vim`（vim 编辑模式开关，见「输入编辑」）、`/terminal-setup`、`/connect`、`/help`、`/exit`（别名 `/quit`、`/q`） |
 | 注册表 | `/plan`、`/goal`，以及当前 DSH 组合注册的其他命令 |
@@ -370,7 +370,7 @@ dsh-TUI 不预装通用技能；技能内容与发现规则由 DSH 及当前组�
   已是最新版时直接提示，不会重启。
 - `/plan [off|message]` 与 `/goal ...` 由 DSH 命令插件处理并写入会话事件。
 - Skill 命令由 host 注入对应 `SKILL.md` 的技能正文后执行，参数原样随行；
-  包内 `skills/` 会在插件启动时自动注册，也可用项目或用户目录中的同名 skill 覆盖。
+  技能内容与发现规则由 DSH 及当前组合负责。
 
 `/connect`、`/hooks` 当前是兼容占位命令；当 DSH 组合没有
 对应能力时会给出明确说明，而不是静默执行。

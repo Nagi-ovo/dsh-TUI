@@ -379,7 +379,7 @@ zh; unmapped registry commands fall back to the registry's own text.
 | Sessions | `/new`, `/resume`, `/rename`, `/recap` (recent-activity summary + one-key suggested title), `/workspace resume|rename|open`, `/clear`, `/compact`, `/export`, `/btw`, `/trace` (trajectory scene, also `Ctrl+T`), `/rewind` (time travel, same as double-`Esc` on an empty input) |
 | Status | `/context`, `/status`, `/cost`, `/balance` (official DeepSeek balance: summary row + hover details, click to refresh), `/config`, `/doctor`, `/init`, `/agents`, `/settings` |
 | Model and display | `/model`, `/effort`, `/thinking`, `/tokens`, `/activity`, `/preset`, `/theme`, `/color` (session accent color: bare opens the palette picker, `<name>` sets directly, `status`/`reset`; input border + session-name chip at the top-right, per-session; chip off by default, enable in `/settings`), `/lang` |
-| Account and policy | `/provider`, `/login`, `/logout`, `/permissions`, `/add-dir`, `/hooks`, `/mcp`, `/skills`, `/plugins` (`check <path>` validates a plugin manifest) |
+| Account and policy | `/provider`, `/login`, `/logout`, `/permissions`, `/add-dir`, `/hooks`, `/mcp`, `/plugins` (`check <path>` validates a plugin manifest) |
 | Skills | `/skills` lists skills DSH discovers from the active profile, user, and project; user-invocable skills join the menu as `/name` |
 | Other | `/update`, `/vim` (vim editing mode toggle — see “Editing keys”), `/terminal-setup`, `/connect`, `/help`, `/exit` (aliases `/quit`, `/q`) |
 | Registry | `/plan`, `/goal`, and any other command registered by the DSH composition |
@@ -416,8 +416,8 @@ Additional forms:
 - `/plan [off|message]` and `/goal ...` are handled by DSH command plugins and
   recorded as session events.
 - Skill commands are executed by the host injecting the corresponding
-  `SKILL.md` body, with arguments passed through unchanged. Packaged `skills/`
-  register at startup and may be overridden by same-name project or user skills.
+  `SKILL.md` body, with arguments passed through unchanged; DSH and the active
+  composition own their content and discovery.
 
 `/connect` and `/hooks` are currently compatibility
 placeholders. When the DSH composition has no matching capability, each
