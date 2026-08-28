@@ -287,7 +287,7 @@ The complete bilingual index is [`docs/README.md`](docs/README.md).
 
 ## Configuration & Extensions
 
-- **Agent presets**: four official agent modes (`standard` / `code` / `minimal` / `cordis`)
+- **Agent presets**: four official agent modes (`standard` / `ptc` / `minimal` / `cordis`)
   plus the TUI-bundled Liangshen mode (`liangshen`),
   switched with `/preset`; sessions that already have a conversation cannot switch, while
   blank sessions take effect immediately. The default preset persists in

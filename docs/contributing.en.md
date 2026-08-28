@@ -52,6 +52,21 @@ boundaries and helpers over introducing parallel abstractions.
   lazy handoff to the runtime plugin.
 - `src/dsh-adapter/plugin.ts`: TTY validation, service registration, agent creation/resume,
   React tree mounting, and terminal/process teardown.
+- `src/dsh-adapter/questions-answerer.ts` and `preset-resolution.ts`: isolate
+  upstream prerelease dispatch for user questions and agent presets so version
+  branches do not spread into bootstrap or channel actions. Note: the
+  questionnaire "provider seat"
+  guard (DUPLICATE_PROVIDER probe + private symbol check, #586) only applies to
+  the rc `registerProvider` path. On alpha.1's `user-questions/request`
+  waterfall, Cordis first scope-filters requests carrying an agent; agentless
+  `/auth` requests are dispatched without a scope carrier. Under the answerer
+  convention, the first eligible listener that returns instead of delegating
+  with `next()` claims the request. Cordis waterfall is around middleware,
+  however: an outer listener can call `next()` and then observe, replace, or
+  reject the downstream result, while `{ prepend: true }` inserts a listener
+  at the front. Upstream offers no supported way to discover or reserve a
+  verifiably exclusive claimant, so the legacy seat guard and its warning
+  cannot be reproduced locally.
 - `src/dsh-adapter/channel.ts`: event-to-view projection and the non-React action surface.
   It translates DSH session events into transcript rows and implements submit,
   steering, rewind, resume, model/preset switching, local reports, and related

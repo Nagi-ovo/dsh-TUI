@@ -1013,7 +1013,7 @@ export function Chat({
         return true
       }
       case 'preset': {
-        // issue #8: bare `/preset` opens the roster picker (standard/code/
+        // issue #8: bare `/preset` opens the roster picker (standard/ptc/
         // minimal/cordis plus any user-authored presets); `/preset <id>`
         // switches directly; `/preset status` shows the current choice. A
         // blank session swaps composition in place (official blank-only
