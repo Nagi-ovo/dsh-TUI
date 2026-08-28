@@ -5,7 +5,6 @@ import { isModelInvocable, isUserInvocable, renderSkillContent, type SkillSummar
 import type { LlmConfigurableProvider, LlmDiscoveredModel, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import {
   createUserMessage,
-  isTokenDelta,
   MessageId,
   ReasoningEffortId,
   type ContentBlock,
@@ -57,8 +56,9 @@ import { readEffortPref, writeEffortPref } from '../effortPrefs.js'
 import { readModelPref, writeModelPref } from '../modelPrefs.js'
 import { explicitModelRoute, recordedModelRoute, resolveModelRoute, validateModelRoute } from '../modelRoute.js'
 import type { OAuthProviderStatus, OAuthSetupHost, ProviderSetupHost } from './providerWizard.js'
-import { readPresetPref, writePresetPref } from '../presetPrefs.js'
-import { composePreset, resolvePersistedPreset, resolvePersistedRoute, rosterOf, runningPresetOf, serviceForAgent, type AgentPresetInfo } from './presets.js'
+import { migratePresetPref, readPresetPref, writePresetPref } from '../presetPrefs.js'
+import { composePreset, resolvePersistedPreset, resolvePersistedRoute, runningPresetOf, serviceForAgent } from './presets.js'
+import { resolveCompatiblePreset, rosterOf, type AgentPresetInfo } from './preset-resolution.js'
 import { isPresetName, PRESET_NAMES } from '../components/activityFrames.js'
 import { existsSync, statSync, writeFileSync } from 'node:fs'
 import { logForDebugging } from '../utils/debug.js'
@@ -568,11 +568,25 @@ export interface CredentialStatus {
   writable: boolean
 }
 
-/** One entry of the latest todo-list snapshot (mirrors the session domain's
- *  `TodoItem`; declared locally for the same reason as {@link ChannelGoal}). */
+/** One entry of the latest todo-list snapshot (mirrors dsh-tool-todo's
+ *  `TodoItem`; declared locally so the adapter needn't depend on that plugin). */
 export interface TodoPanelItem {
   content: string
   status: 'pending' | 'in_progress' | 'completed'
+}
+
+/** Narrow an optional plugin event without importing its module augmentation. */
+function todoPanelItems(data: unknown): TodoPanelItem[] | undefined {
+  if (typeof data !== 'object' || data === null) return undefined
+  const todos = (data as { todos?: unknown }).todos
+  if (!Array.isArray(todos)) return undefined
+  const valid = todos.every(item => {
+    if (typeof item !== 'object' || item === null) return false
+    const candidate = item as { content?: unknown; status?: unknown }
+    return typeof candidate.content === 'string' &&
+      (candidate.status === 'pending' || candidate.status === 'in_progress' || candidate.status === 'completed')
+  })
+  return valid ? todos as TodoPanelItem[] : undefined
 }
 
 /** One named prompt contribution with its model-visible text. */
@@ -4226,7 +4240,14 @@ export function createChannel(
       // A fresh session composes the caller's DEFAULT preset: the cordis.yml
       // `preset` key wins over the persisted `/preset` choice, which wins
       // over the roster default (same precedence as activityFrames).
-      const newComposed = await composePreset(ctx, options.configuredPreset ?? readPresetPref())
+      const presetPref = options.configuredPreset === undefined ? readPresetPref() : undefined
+      const newComposed = await composePreset(ctx, options.configuredPreset ?? presetPref)
+      if (!migratePresetPref(presetPref, newComposed.agentPreset)) {
+        state.notify(
+          t('preset-switched-pref-failed', { id: newComposed.agentPreset ?? presetPref ?? 'unknown' }),
+          { color: 'warning' },
+        )
+      }
       // Same precedence for the route (issues #14/#30/#67): the pair resolves
       // atomically — a complete cordis.yml route wins whole, else the
       // persisted `/model` choice (a switch earlier in this run just wrote
@@ -4725,7 +4746,7 @@ export function createChannel(
       }
       let target: AgentPresetInfo
       try {
-        target = await presets.resolve(presetId)
+        target = await resolveCompatiblePreset(presets, presetId)
       } catch (error) {
         state.notify(
           t('preset-not-found', { id: presetId, err: error instanceof Error ? error.message : String(error) }),
@@ -4734,10 +4755,14 @@ export function createChannel(
         return false
       }
       if (target.broken !== undefined) {
-        state.notify(t('preset-load-failed', { id: presetId, broken: target.broken }), { color: 'error', timeoutMs: 8000 })
+        state.notify(t('preset-load-failed', { id: target.id, broken: target.broken }), { color: 'error', timeoutMs: 8000 })
         return false
       }
       if (target.id === state.agentPreset) {
+        if (!migratePresetPref(presetId, target.id)) {
+          state.notify(t('preset-switched-pref-failed', { id: target.id }), { color: 'warning' })
+          return true
+        }
         state.notify(t('preset-already-current', { id: target.id }), { color: 'success' })
         return true
       }
@@ -6756,21 +6781,31 @@ ${output}
       case 'session/title':
         state.sessionTitle = event.data.title
         break
-      case 'todo/write':
-        // Whole-list snapshot — latest write wins; log-only UI state.
-        state.todos = event.data.todos
-        break
       default:
+        // dsh-tool-todo owns this optional module augmentation in alpha.1.
+        // Match by name so the TUI remains loadable without that plugin.
+        if ((event as { type: string }).type === 'todo/write') {
+          const todos = todoPanelItems((event as unknown as { data?: unknown }).data)
+          if (todos !== undefined) state.todos = todos
+          break
+        }
         // Logged preset switch (blank sessions only, issue #8): a transcript
         // marker so a replayed log shows which composition produced the
         // turns after it. Not in dsh-session's typed union — matched here by
         // name, like the other plugin-defined events above.
         if ((event as { type: string }).type === 'agent-preset/selected') {
           const data = event.data as unknown as { agentPreset?: string }
+          const recordedPreset = typeof data.agentPreset === 'string' ? data.agentPreset : undefined
+          const renamedOfficialPreset =
+            (recordedPreset === 'code' && state.agentPreset === 'ptc') ||
+            (recordedPreset === 'ptc' && state.agentPreset === 'code')
+          const preset = renamedOfficialPreset && state.agentPreset !== undefined
+            ? state.agentPreset
+            : recordedPreset ?? 'unknown'
           state.rows.push({
             id: nextRowId,
             kind: 'notice',
-            text: t('agent-preset-switched', { preset: data.agentPreset ?? 'unknown' }),
+            text: t('agent-preset-switched', { preset }),
           })
           nextRowId += 1
           break
@@ -7259,6 +7294,19 @@ export function sessionCwdMatches(
 /** Context-bar token estimate (pi-nano-context: ~4 chars per token). */
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
+}
+
+/** Whether one stream chunk advances the first-token/decode boundary. */
+function isTokenDelta(chunk: StreamChunk): boolean {
+  switch (chunk.type) {
+    case 'text-delta':
+    case 'reasoning-delta':
+      return chunk.text !== ''
+    case 'tool-call-delta':
+      return chunk.argumentsDelta !== '' || chunk.name !== undefined
+    default:
+      return false
+  }
 }
 
 /** Character payload of one token-bearing stream delta for the live fallback. */

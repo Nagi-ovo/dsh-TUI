@@ -2,8 +2,7 @@ import { randomUUID } from 'node:crypto'
 import React from 'react'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
-import UserQuestionService, { type UserQuestionProvider } from '@deepseek-ai/dsh-user-questions'
-import { decideQuestionProviderYield, incumbentQuestionProviderId, tagTuiQuestionProvider } from './providerGuard.js'
+import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import type { Context } from '@deepseek-ai/cordis'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -13,6 +12,7 @@ import { createChannel } from './channel.js'
 import { createChildStderrReporter, installChildStderrGuard } from './childStderr.js'
 import { logForDebugging } from '../utils/debug.js'
 import { QuestionStore } from './questions.js'
+import { prepareQuestionAnswerer } from './questions-answerer.js'
 import { ApprovalStore } from './approvals.js'
 import { registerPromptDebug } from './promptDebug.js'
 import { readActivityFrames } from '../activityPrefs.js'
@@ -20,7 +20,7 @@ import { commitFullscreenFactoryMigration, planFullscreenFactoryMigration, readA
 import { readModelPref } from '../modelPrefs.js'
 import { explicitModelRoute, recordedModelRoute, resolveModelRoute, validateModelRoute } from '../modelRoute.js'
 import type { ModelRoute } from '../modelRoute.js'
-import { readPresetPref } from '../presetPrefs.js'
+import { migratePresetPref, readPresetPref } from '../presetPrefs.js'
 import { composePreset, filterMinimalPresetTools, resolvePersistedPreset, resolvePersistedRoute, runningPresetOf } from './presets.js'
 import { ensurePackagedPresets } from './packaged-presets.js'
 import { ensureLegacySessionEventTypes } from './compat/index.js'
@@ -295,14 +295,15 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   }
 
   // DSH user-interaction seam: the model's ask_user_question tool parks on
-  // the userInteraction service until a UI provider answers. Mount the
+  // the userQuestions service until a UI answerer responds. Mount the
   // service when the composition doesn't (the official dsh-base
   // user-interaction config row does; a bare plugin mount creates it on
-  // this context), expose the model-facing tool, and register this TUI's
-  // questionnaire as the provider. All three must be in place before the
-  // agent is resolved so the per-step tool assembly includes
-  // ask_user_question. Optional-service access goes through `ctx.get`, not
-  // the inject proxy.
+  // this context), then expose the model-facing tool before resolving the
+  // agent so per-step assembly includes ask_user_question. rc.2's provider
+  // seat is registered below; alpha.1's agent-aware waterfall needs the
+  // channel owner and is therefore registered immediately after the channel
+  // is created. Optional-service access goes through `ctx.get`, not the
+  // inject proxy.
   const userQuestions = ctx.get('userQuestions') ?? new UserQuestionService(ctx)
   ctx.plugin(toolAskUser)
   // The host-level tool mount above is intentional for the TUI and for user
@@ -316,50 +317,33 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     return filterMinimalPresetTools(assembled, presetId)
   })
   const questionStore = new QuestionStore()
+  // One store, one teardown effect on both API lines. The legacy provider and
+  // alpha waterfall already own their registration cleanup through Cordis;
+  // this effect only rejects asks still parked in the UI during teardown.
+  ctx.effect(() => () => questionStore.rejectAll())
   // `/debug-prompt` snapshots the final provider-neutral request at the
   // llm/stream boundary, after every prompt and tool contributor has run.
   registerPromptDebug(ctx)
-  // Yield to an incumbent provider instead of crashing the whole plugin tree
-  // (issue #98): the harness allows exactly ONE user-questions provider per
-  // context, and stacking this TUI onto a profile that already carries
-  // @deepseek-ai/dsh-web-app (its api-gateway registers first) used to fail
-  // the boot with DUPLICATE_PROVIDER. The incumbent UI then owns questionnaire
-  // rendering; this TUI's ask_user_question requests are answered there.
-  //
-  // Security follow-up: silence must be reserved for host-VERIFIED front
-  // doors. A plugin that registers FIRST owns the seat just the same, and
-  // would then answer ask_user_question on the user's behalf without any
-  // signal. The DUPLICATE_PROVIDER error carries no incumbent identity, so
-  // the seat is probed structurally: the silent yield now requires this
-  // TUI's private symbol tag (or any future host-verified marker) on a
-  // whitelisted incumbent; a whitelist name the incumbent merely
-  // SELF-REPORTED (name/hostId/id fields are trivially copyable) gets an
-  // honest "identity not host-verified" alert instead — forgeable silence
-  // is worse than a loud warning. Anything else stays unregistered (the
-  // composition must not crash) but the user is told loudly.
-  const tuiQuestionProvider: UserQuestionProvider = { ask: request => questionStore.ask(request) }
-  tagTuiQuestionProvider(tuiQuestionProvider)
+  // API selection and registration live behind one adapter boundary. The UI
+  // bootstrap only translates a legacy seat conflict into its visible notice.
+  const questionAnswererRegistration = prepareQuestionAnswerer(ctx, userQuestions, questionStore)
+  const questionSeatDecision = questionAnswererRegistration.kind === 'legacy'
+    ? questionAnswererRegistration.yieldDecision
+    : undefined
   let questionSeatNotice: string | undefined
-  try {
-    userQuestions.registerProvider(tuiQuestionProvider)
-    ctx.effect(() => () => questionStore.rejectAll())
-  } catch (error) {
-    if ((error as { code?: string }).code !== 'DUPLICATE_PROVIDER') throw error
-    const decision = decideQuestionProviderYield(incumbentQuestionProviderId(userQuestions))
-    if (decision.action === 'alert-unverified') {
-      ctx.logger.error(
-        `dsh-tui: user-questions provider seat is held by a component self-reporting as ${decision.incumbentId} ` +
-          '(identity not host-verified); this TUI will not register its questionnaire and model questions may be answered by it',
-      )
-      questionSeatNotice = t('question-provider-occupied-unverified', { id: decision.incumbentId ?? '' })
-    } else if (decision.action === 'alert') {
-      const displayId = decision.incumbentId ?? t('question-provider-occupied-unknown')
-      ctx.logger.error(
-        `dsh-tui: user-questions provider seat is held by a non-host component (${displayId}); ` +
-          'this TUI will not register its questionnaire and model questions may be answered by it',
-      )
-      questionSeatNotice = t('question-provider-occupied', { id: displayId })
-    }
+  if (questionSeatDecision?.action === 'alert-unverified') {
+    ctx.logger.error(
+      `dsh-tui: user-questions provider seat is held by a component self-reporting as ${questionSeatDecision.incumbentId} ` +
+        '(identity not host-verified); this TUI will not register its questionnaire and model questions may be answered by it',
+    )
+    questionSeatNotice = t('question-provider-occupied-unverified', { id: questionSeatDecision.incumbentId ?? '' })
+  } else if (questionSeatDecision?.action === 'alert') {
+    const displayId = questionSeatDecision.incumbentId ?? t('question-provider-occupied-unknown')
+    ctx.logger.error(
+      `dsh-tui: user-questions provider seat is held by a non-host component (${displayId}); ` +
+        'this TUI will not register its questionnaire and model questions may be answered by it',
+    )
+    questionSeatNotice = t('question-provider-occupied', { id: displayId })
   }
 
   // Child-process stderr guard (issue #17): MCP servers spawned with an
@@ -559,6 +543,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   toastStore?.setSink(delivery => {
     channel.notify(delivery.text, { color: delivery.color, timeoutMs: delivery.timeoutMs })
   })
+  if (questionAnswererRegistration.kind === 'waterfall') {
+    // Ownership follows the mutable channel; registration cleanup belongs to
+    // this Cordis fiber.
+    questionAnswererRegistration.register(channel)
+  }
   // Fullscreen layout decision: the settings user layer (edited through the
   // /settings screen) overrides cordis.yml when set. The settings injection
   // below resolves it synchronously when the host settings service is up —
@@ -1597,7 +1586,13 @@ async function resolveAgent(
     }
   }
   const sessionId = SessionId(randomUUID())
-  const composed = await composePreset(ctx, configuredPreset ?? readPresetPref())
+  const presetPref = configuredPreset === undefined ? readPresetPref() : undefined
+  const composed = await composePreset(ctx, configuredPreset ?? presetPref)
+  if (!migratePresetPref(presetPref, composed.agentPreset)) {
+    ctx.logger.warn(
+      `dsh-tui: resolved preset preference "${presetPref}" as "${composed.agentPreset}" but could not persist the migrated id`,
+    )
+  }
   // Fresh-session route precedence (issues #14/#30/#67): resolved atomically
   // by the caller (complete cordis.yml route > the persisted `/model` choice
   // > the harness default), then validated against the adapter catalog — a
