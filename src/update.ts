@@ -945,8 +945,8 @@ export function tuiUpdatePluginArgs(profile: string, targetVersion?: string): st
 }
 
 /**
- * Postinstall-only transitive dependencies of the dsh-tui chain
- * (dsh-auth → @earendil-works/pi-ai → @google/genai + protobufjs, plus the
+ * Postinstall-only transitive dependencies of the dsh profile chain
+ * (dsh-llm-pi-ai → @earendil-works/pi-ai → @google/genai + protobufjs, plus the
  * esbuild/koffi peers of that chain): pnpm ≥11 refuses to run their build
  * scripts unless the workspace allowlists them, and a profile that never
  * opted in fails the WHOLE install with ERR_PNPM_IGNORED_BUILDS. None of
