@@ -124,11 +124,18 @@ seam.
 
 - Supported Node versions are `^22.19 || >=24`; CI uses Node 24.
 - CI and publishing use pnpm 11. Use pnpm as the development package manager.
+  The `packageManager` field in the root `package.json` is the single source of
+  truth for the pnpm version; both CI and corepack read it from there.
 - Install a clean checkout with:
 
   ```sh
+  git clone --recurse-submodules https://github.com/ccch1mneyyy/dsh-TUI.git
   pnpm install --frozen-lockfile
   ```
+
+  In an existing checkout, run `git submodule update --init --recursive` first.
+  `vendor/dsh-std` and `dsh-auth` are workspace / `link:` dependencies, so the
+  install always fails while those submodules are empty.
 
 - `pnpm-lock.yaml` is the single lockfile. npm consumers do not read a
   dependency's lockfile, so `package-lock.json` has been removed (follow-up of

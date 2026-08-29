@@ -101,8 +101,11 @@ Cordis config
 ## 工具链（Toolchain）
 
 - 支持 Node `^22.19 || >=24`；CI 用 Node 24。
-- CI 与发布用 pnpm 11；开发也请用 pnpm。
-- 干净检出安装：`pnpm install --frozen-lockfile`。
+- CI 与发布用 pnpm 11；开发也请用 pnpm。根 `package.json` 的 `packageManager`
+  字段是 pnpm 版本的唯一真源，CI 与 corepack 都从这里取值。
+- 干净检出安装：先 `git clone --recurse-submodules`（或在已有检出里
+  `git submodule update --init --recursive`），再 `pnpm install --frozen-lockfile`。
+  `vendor/dsh-std` 与 `dsh-auth` 是 workspace / `link:` 依赖，子模块为空时安装必失败。
 - `pnpm-lock.yaml` 是唯一锁文件。npm 消费方不读依赖包的 lockfile，
   `package-lock.json` 已移除（见 #173 后续处理）。
 - 有意改依赖时：用 `pnpm add` 更新 `pnpm-lock.yaml`，检查完整 lockfile diff，
