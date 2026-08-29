@@ -55,9 +55,9 @@ function hasLegacyProvider(service: unknown): service is LegacyUserQuestionServi
 
 /**
  * Prepare the answerer against whichever upstream API the active package
- * exposes. The legacy path registers immediately because it is global. The
- * waterfall path returns a late binder because channel.agentId changes across
- * `/new`, `/resume`, and rewind.
+ * exposes. The legacy path registers immediately and binds the returned
+ * disposer to this TUI fiber. The waterfall path returns a late binder because
+ * channel.agentId changes across `/new`, `/resume`, and rewind.
  *
  * Agentless waterfall requests are claimed deliberately: dsh-auth's `/auth`
  * wizard asks through the same service without an agent. Foreign-agent
@@ -94,7 +94,10 @@ export function prepareQuestionAnswerer(
   const provider: QuestionAnswerer = { ask: request => answerer.ask(request) }
   tagTuiQuestionProvider(provider)
   try {
-    service.registerProvider(provider)
+    ctx.effect(
+      () => service.registerProvider(provider),
+      'dsh-tui.questions.legacy-provider',
+    )
     return { kind: 'legacy' }
   } catch (error) {
     if ((error as { code?: string }).code !== 'DUPLICATE_PROVIDER') throw error

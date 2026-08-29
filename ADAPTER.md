@@ -28,7 +28,7 @@ UI 层(`screens/`、`components/`、`ink/`、`hooks/`、`utils/`、`cc/`)
   因而 alpha.1 与 web-app 对齐,rc.2 仍保留 host `/goal`;web-app 另有 `hmr`
 - **config overrides**:8 行(原有 6 行加 session-telemetry-otel /
   plugin-package-inventory-deepseek),后两行保持 TUI 的隐私默认
-- **inserts**:17 行(dsh-tui、working-activity、六个插件互通行,以及
+- **inserts**:17 行(dsh-tui、working-activity、dsh-tui-auth、六个插件互通行,以及
   dsh-tui-storage、dsh-tui-storage-json、dsh-tui-storage-domain、
   dsh-tui-workspace、dsh-tui-code-runtime、dsh-tui-subagent-model-selection-settings、
   dsh-tui-agent-presets、dsh-tui-cordis-host-runner)。这些 host-plane 行使用 dsh-tui 作用域 id,

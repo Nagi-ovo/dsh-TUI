@@ -115,7 +115,9 @@
       try {
         const manifest = require.resolve('@deepseek-ai/dsh-agent-presets/package.json')
         const preset = path.join(path.dirname(manifest), 'presets', 'standard', 'agent.cordis.yml')
-        return /(?:^|\n)- id: command-goal(?:\n|$)/.test(fs.readFileSync(preset, 'utf8'))
+        return fs.readFileSync(preset, 'utf8')
+          .split(/\r?\n/u)
+          .some(line => line.trim() === '- id: command-goal')
       } catch {
         return false
       }

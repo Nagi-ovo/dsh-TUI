@@ -154,6 +154,10 @@ for (const baseline of baselines) {
 
   const commandGoalPatch = tuiPatches.find(row => row?.id === 'command-goal')
   assert.equal(typeof commandGoalPatch?.disabled, 'string', `${baseline.label}: command-goal needs a !!js condition`)
+  assert.ok(
+    commandGoalPatch.disabled.includes('.split(/\\r?\\n/u)'),
+    `${baseline.label}: command-goal capability probe must accept LF and CRLF presets`,
+  )
   assert.equal(
     Boolean(evaluateFor(baseline, commandGoalPatch.disabled)),
     alpha,

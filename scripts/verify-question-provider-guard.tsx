@@ -15,7 +15,8 @@
  *      自报字段 verified: false；裸 { ask } provider 无身份。
  *   3. legacy registerProvider 契约：第二次注册抛 DUPLICATE_PROVIDER，
  *      此刻探测服务能拿到在位者对象；自报 name='dsh-web-app' 的在位者
- *      不得静默。装的是 rc 时走真实服务，alpha 时走等价 legacy double。
+ *      不得静默；TUI fiber teardown 必须释放座位。装的是 rc 时走真实
+ *      服务，alpha 时走等价 legacy double。
  *   4. alpha `user-questions/request` waterfall：当前 agent 由 TUI 接手，
  *      其他 agent 调 next()；agentless 也由 TUI 接手，因为 dsh-auth 的
  *      `/auth` 调 `ctx.userQuestions.ask({ questions, signal })` 不传 agent。
@@ -132,7 +133,6 @@ function createLegacyService(): LegacyQuestionService {
 
 const service = createLegacyService()
 const legacyRegistrationCtx = new Context()
-serviceContexts.push(legacyRegistrationCtx)
 const legacyRegistration = prepareQuestionAnswerer(legacyRegistrationCtx, service, own)
 assert.equal(legacyRegistration.kind, 'legacy')
 assert.equal(legacyRegistration.kind === 'legacy' ? legacyRegistration.yieldDecision : undefined, undefined)
@@ -174,6 +174,13 @@ assert.equal(
   forgedRegistration.kind === 'legacy' ? forgedRegistration.yieldDecision?.action : undefined,
   'alert-unverified',
 )
+
+// TUI recompose disposes only its own fiber; the composition-owned service
+// survives. Its provider seat must still be released so the replacement TUI
+// can register a fresh QuestionStore instead of silently yielding to stale state.
+await legacyRegistrationCtx.fiber.dispose()
+const releaseReplacement = service.registerProvider({ ask: async () => ({ answers: [] }) })
+releaseReplacement()
 
 // ── alpha waterfall：current / other / agentless 三条所有权路径 ─────────
 const waterfallCtx = new Context()

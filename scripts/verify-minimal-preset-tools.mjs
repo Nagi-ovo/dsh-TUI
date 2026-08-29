@@ -40,8 +40,16 @@ const legacyEventSession = {
   header: { agentPreset: 'standard' },
   events: [{ type: 'agent-preset/selected', data: { agentPreset: 'code' } }],
 }
+const malformedLatestEventSession = {
+  header: { agentPreset: 'standard' },
+  events: [
+    { type: 'agent-preset/selected', data: { agentPreset: 'code' } },
+    { type: 'agent-preset/selected', data: null },
+  ],
+}
 assert.equal(runningPresetOf(legacyHeaderSession), 'code')
 assert.equal(runningPresetOf(legacyEventSession), 'code')
+assert.equal(runningPresetOf(malformedLatestEventSession), 'code')
 assert.equal(legacyHeaderSession.header.agentPreset, 'code')
 assert.equal(legacyEventSession.events[0].data.agentPreset, 'code')
 

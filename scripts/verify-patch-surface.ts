@@ -85,6 +85,12 @@ function resolvedPackageFile(specifier: string): string {
   return path.startsWith('file:') ? fileURLToPath(path) : path
 }
 
+function isMissingModuleError(error: unknown): boolean {
+  if (error === null || typeof error !== 'object') return false
+  const code = (error as { code?: unknown }).code
+  return code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND'
+}
+
 function baseline(label: string, manifestPath: string, patchPath: string, baseUrl?: string): WebBaseline {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { version?: unknown }
   if (typeof manifest.version !== 'string' || manifest.version.length === 0) {
@@ -129,14 +135,19 @@ if (!existsSync(tuiPatchPath)) {
 const tui = parsePatch(readFileSync(tuiPatchPath, 'utf8'))
 const baselines: WebBaseline[] = []
 
+let installedManifest: string | undefined
 try {
+  installedManifest = resolvedPackageFile('@deepseek-ai/dsh-web-app/package.json')
+} catch (error) {
+  if (!isMissingModuleError(error)) throw error
+  console.warn('@deepseek-ai/dsh-web-app not installed — skipping installed web-app comparison')
+}
+if (installedManifest !== undefined) {
   baselines.push(baseline(
     'installed',
-    resolvedPackageFile('@deepseek-ai/dsh-web-app/package.json'),
+    installedManifest,
     resolvedPackageFile('@deepseek-ai/dsh-web-app/cordis.patch.yml'),
   ))
-} catch {
-  console.warn('@deepseek-ai/dsh-web-app not installed — skipping installed web-app comparison')
 }
 
 const sourceRoot = resolve(process.env.DSH_HARNESS_SOURCE_ROOT ?? resolve(root, '../deepseek-harness'))
