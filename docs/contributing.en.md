@@ -130,6 +130,7 @@ seam.
 
   ```sh
   git clone --recurse-submodules https://github.com/ccch1mneyyy/dsh-TUI.git
+  cd dsh-TUI
   pnpm install --frozen-lockfile
   ```
 

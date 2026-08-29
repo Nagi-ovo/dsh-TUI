@@ -22,7 +22,7 @@
 - [ ] 按改动面选的聚焦回归脚本（对照表见 [docs/contributing.md](../docs/contributing.md)）
 - [ ] 终端可见改动：在 inline 与 fullscreen 两种模式、窄终端宽度下手动演练过
 
-```
+```text
 <!-- 命令与输出 -->
 ```
 
