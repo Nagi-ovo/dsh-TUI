@@ -2,7 +2,24 @@
   "name": "@deepseek-harness-tui/dsh-tui",
   "version": "0.9.3",
   "description": "Claude Code style interactive TUI front door for DeepSeek Harness agents, built on the ported Ink core.",
+  "keywords": [
+    "dsh",
+    "dsh-tui",
+    "deepseek",
+    "deepseek-harness",
+    "cordis",
+    "tui",
+    "terminal",
+    "cli",
+    "ink",
+    "agent",
+    "coding-agent"
+  ],
   "license": "MIT",
+  "author": {
+    "name": "chimney",
+    "url": "https://github.com/ccch1mneyyy"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/ccch1mneyyy/dsh-TUI.git"
@@ -11,6 +28,7 @@
     "url": "https://github.com/ccch1mneyyy/dsh-TUI/issues"
   },
   "homepage": "https://github.com/ccch1mneyyy/dsh-TUI#readme",
+  "packageManager": "pnpm@11.21.0",
   "publishConfig": {
     "access": "public"
   },
