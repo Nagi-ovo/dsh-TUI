@@ -175,12 +175,18 @@ the profile.
 ## Develop from source
 
 ```sh
-git clone https://github.com/ccch1mneyyy/dsh-TUI.git
+git clone --recurse-submodules https://github.com/ccch1mneyyy/dsh-TUI.git
 cd dsh-TUI
+# Existing checkout with empty submodules: git submodule update --init --recursive
 pnpm install --frozen-lockfile
 pnpm build
 pnpm smoke
 ```
+
+The repo root `.nvmrc` / `.node-version` pins Node 24 (same as CI). Use
+pnpm 11.21.0 (`packageManager`, matching `vendor/dsh-std`). Activating a
+newer 11.x via corepack makes `prepare` fail when it builds the vendored
+workspace.
 
 `pnpm build` cleans the ignored `lib/` directory, compiles `src/` into
 `lib/types/`, and runs the build gates. **Git URL installs are not supported**
