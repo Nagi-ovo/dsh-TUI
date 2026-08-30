@@ -74,7 +74,7 @@ export interface Config {
   /** UI language: `en` / `zh`. When absent, the `DSH_TUI_LANG` env var wins,
    *  then the `/lang` choice persisted in `~/.dsh-tui/lang.json`, then `zh`. */
   lang?: string
-  /** Agent preset id new sessions compose from (standard/code/minimal/
+  /** Agent preset id new sessions compose from (standard/ptc/minimal/
    *  cordis/… when the roster is mounted). When absent, the `/preset` choice
    *  persisted in `~/.dsh-tui/agent-preset.json` wins, then the roster
    *  default (`standard`). */
@@ -93,9 +93,19 @@ export interface Config {
    *  `dsh-tui.scrollGutter`): `timeline` turn rail (default), `scrollbar`
    *  proportional thumb, or `hidden`. */
   scrollGutter?: ScrollGutterMode
+  /** Terminal-card header folding (settings `dsh-tui.foldTerminalCommand`):
+   *  `true` collapses a multi-line command title to its first line plus a
+   *  `+N lines` hint; Ctrl+O / clicking the card expands it. Default off —
+   *  the full title keeps rendering. */
+  foldTerminalCommand?: boolean
   /** Show the session name as a chip on the prompt top border's right side
    *  (settings `dsh-tui.promptSessionLabel`); off by default. */
   promptSessionLabel?: boolean
+  /** Fullscreen draft editor (settings `dsh-tui.expandEditor`): the ⛶
+   *  affordance in the input row and the expandEditor shortcut (default
+   *  Ctrl+Shift+E) expand the draft into a whole-screen editor. On by
+   *  default; off removes both entry points. */
+  expandEditor?: boolean
   /** Status-footer field visibility and compact presentation preferences. */
   statusBar?: Partial<StatusBarConfig>
   /** Built-in action-shortcut overrides (`paste: 'alt+v'`), keyed by action
@@ -132,7 +142,9 @@ export const Config: Schema<Config> = Schema.object({
   thinkingFold: Schema.union(['preview', 'full']).default('preview'),
   toolBackground: Schema.union(['none', 'subtle', 'strong']).default('none'),
   scrollGutter: Schema.union(['timeline', 'scrollbar', 'hidden']).default('timeline'),
+  foldTerminalCommand: Schema.boolean().default(false),
   promptSessionLabel: Schema.boolean().default(false),
+  expandEditor: Schema.boolean().default(true),
   statusBar: Schema.object({
     compact: Schema.boolean().default(DEFAULT_STATUS_BAR.compact),
     model: Schema.boolean().default(DEFAULT_STATUS_BAR.model),

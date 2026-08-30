@@ -1,7 +1,8 @@
-import { spawn } from 'node:child_process'
-import { appendFileSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { appendFileSync, chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gte, gt, lt, valid } from 'semver'
 import { shellQuote } from './utils/shellQuote.js'
@@ -13,7 +14,20 @@ export { shellQuote }
 
 const PACKAGE_NAME = '@deepseek-harness-tui/dsh-tui'
 const DEFAULT_REGISTRY = 'https://registry.npmjs.org'
+const GITHUB_REPO = 'ccch1mneyyy/dsh-TUI'
 const UPDATE_CHECK_TIMEOUT_MS = 4000
+const STANDALONE_DOWNLOAD_TIMEOUT_MS = 300000
+/**
+ * Hard cap on a single release asset the updater will accept, checked against
+ * the declared content-length BEFORE the body is buffered, and enforced as a
+ * mid-stream abort while the body downloads (a chunked response with no
+ * content-length header is interrupted at the cap instead of buffered whole —
+ * a hostile mirror must not be able to pin the process in an unbounded
+ * arrayBuffer() and OOM it).
+ */
+const MAX_ASSET_BYTES = 512 * 1024 * 1024
+/** The SHA256SUMS manifest itself is plain text; anything past this is broken. */
+const MAX_CHECKSUM_MANIFEST_BYTES = 1024 * 1024
 /** env marker set on the /update restart; the new process verifies it at boot. */
 const UPDATED_FROM_ENV = 'DSH_TUI_UPDATED_FROM'
 /**
@@ -86,13 +100,17 @@ export function writeHandoffNotice(text: string): void {
 export interface TuiUpdateInfo {
   current: string
   latest: string
+  isStandalone?: boolean
+  downloadUrl?: string
+  /** SHA256SUMS manifest URL when the release publishes one; absent = the update warning path. */
+  checksumUrl?: string
 }
 
 /** What a fresh registry lookup says about this install. */
 export type TuiUpdateTarget =
-  | { kind: 'update'; current: string; latest: string; authoritative?: string }
-  | { kind: 'latest'; current: string }
-  | { kind: 'unknown' }
+  | { kind: 'update'; current: string; latest: string; authoritative?: string; isStandalone?: boolean; downloadUrl?: string; checksumUrl?: string }
+  | { kind: 'latest'; current: string; isStandalone?: boolean }
+  | { kind: 'unknown'; isStandalone?: boolean }
 
 export interface TuiUpdateResult {
   /** Exit code of the `dsh plugin update` run (0 = the package was updated). */
@@ -214,6 +232,585 @@ async function fetchLatestVersion(registryBase: string): Promise<string | undefi
 }
 
 /**
+ * Detect whether the current process is running in standalone / portable package mode.
+ *
+ * @returns `true` when running inside a standalone binary distribution, `false` otherwise.
+ */
+export function isStandaloneRuntime(): boolean {
+  return (
+    process.env.DSH_TUI_STANDALONE === '1' ||
+    process.env.DSH_TUI_STANDALONE_BINARY !== undefined ||
+    (typeof process.env.DSH_HOME === 'string' && process.env.DSH_HOME.includes('dsh-tui-standalone'))
+  )
+}
+
+/**
+ * Get the path to the current standalone executable binary.
+ *
+ * @returns The resolved executable path from environment or `process.execPath`.
+ */
+export function getStandaloneBinaryPath(): string {
+  return process.env.DSH_TUI_STANDALONE_BINARY ?? process.execPath
+}
+
+/**
+ * Get the expected release asset file name for the current platform and architecture.
+ *
+ * @param platform - Node.js platform identifier (e.g. `'linux'`, `'win32'`, `'darwin'`).
+ * @param arch - Node.js architecture identifier (e.g. `'x64'`, `'arm64'`).
+ * @returns The archive file name matching the target platform.
+ */
+export function getStandaloneAssetName(platform = process.platform, arch = process.arch): string {
+  if (platform === 'win32') {
+    return 'dsh-tui-standalone-win-x64.zip'
+  }
+  if (platform === 'darwin') {
+    return arch === 'arm64'
+      ? 'dsh-tui-standalone-darwin-arm64.tar.gz'
+      : 'dsh-tui-standalone-darwin-x64.tar.gz'
+  }
+  return arch === 'arm64'
+    ? 'dsh-tui-standalone-linux-arm64.tar.gz'
+    : 'dsh-tui-standalone-linux-x64.tar.gz'
+}
+
+/** Options for {@link fetchGithubLatestRelease} — injectable for tests. */
+export interface GithubReleaseQuery {
+  /** GitHub API base; defaults to `https://api.github.com`. */
+  apiBaseUrl?: string
+  /** Fetch implementation; defaults to the global fetch. */
+  fetchImpl?: typeof fetch
+}
+
+/**
+ * Locate the release's checksum manifest among its assets: the aggregator
+ * `SHA256SUMS` file first, then a single-asset `<asset>.sha256` sidecar —
+ * and nothing else. A name-blind `endsWith('.sha256')` fallback (removed,
+ * external review) could claim ANOTHER asset's sidecar (e.g. the win zip's
+ * digest next to a linux update), whose mismatch then fail-closed innocent
+ * users' updates; an unrecognized layout resolves to undefined so the
+ * transition-period warning path applies instead.
+ * @param assets - Parsed release asset objects.
+ * @param assetName - The main asset whose sidecar, if any, is exact-named.
+ * @returns The manifest's browser_download_url, or undefined when the release
+ *   publishes none (the transition-period warning path).
+ */
+function findChecksumAssetUrl(assets: unknown[], assetName: string): string | undefined {
+  const urlOf = (a: unknown): a is Record<string, unknown> =>
+    isRecord(a) && typeof a.name === 'string' && typeof a.browser_download_url === 'string'
+  const byName = (name: string): unknown => assets.find(a => urlOf(a) && a.name === name)
+  const sums = byName('SHA256SUMS')
+  if (sums !== undefined) return (sums as Record<string, unknown>).browser_download_url as string
+  const exact = byName(`${assetName}.sha256`)
+  return exact === undefined ? undefined : (exact as Record<string, unknown>).browser_download_url as string
+}
+
+/**
+ * Fixed-name SHA256SUMS download URL for a release version — the
+ * mirror-fallback counterpart of {@link findChecksumAssetUrl}: when the
+ * GitHub API is unreachable and the version came from a registry, there is no
+ * asset list to parse, so the manifest is probed at its conventional name on
+ * the same direct-download host (release-bundle.yml publishes it as
+ * `SHA256SUMS` next to every asset).
+ */
+export function releaseChecksumUrl(version: string): string {
+  return `https://github.com/${GITHUB_REPO}/releases/download/v${version}/SHA256SUMS`
+}
+
+/**
+ * Probe whether a release publishes a checksum manifest at a URL. Only an OK
+ * response resolves to the URL — a 404 (the release predates the checksum
+ * workflow) or any network failure resolves to undefined so the update keeps
+ * the transition-period warning path instead of being blocked (new releases
+ * always ship the manifest; old ones must keep updating).
+ */
+async function probeChecksumManifestUrl(url: string): Promise<string | undefined> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS)
+  try {
+    const response = await fetch(url, {
+      headers: { 'user-agent': 'dsh-tui-updater' },
+      redirect: 'follow',
+      signal: controller.signal,
+    })
+    return response.ok ? url : undefined
+  } catch {
+    return undefined
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+/**
+ * Fetch latest release info from GitHub Releases API for the standalone asset.
+ *
+ * @param options - Injectable API base / fetch for tests.
+ * @returns Release version tag, matching asset download URL, and the
+ *   SHA256SUMS manifest URL when the release ships one, or `undefined` on any
+ *   failure.
+ */
+export async function fetchGithubLatestRelease(options: GithubReleaseQuery = {}): Promise<{ version: string; downloadUrl?: string; checksumUrl?: string } | undefined> {
+  const doFetch = options.fetchImpl ?? fetch
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS)
+  try {
+    const response = await doFetch(`${options.apiBaseUrl ?? 'https://api.github.com'}/repos/${GITHUB_REPO}/releases/latest`, {
+      headers: { accept: 'application/vnd.github.v3+json', 'user-agent': 'dsh-tui-updater' },
+      signal: controller.signal,
+    })
+    if (!response.ok) return undefined
+    const payload: unknown = await response.json()
+    if (!isRecord(payload) || typeof payload.tag_name !== 'string') return undefined
+    const rawTag = payload.tag_name.replace(/^v/, '')
+    const version = valid(rawTag)
+    if (version === null) return undefined
+    const assetName = getStandaloneAssetName()
+    let downloadUrl: string | undefined
+    let checksumUrl: string | undefined
+    if (Array.isArray(payload.assets)) {
+      const asset = (payload.assets as unknown[]).find(
+        (a: unknown) => isRecord(a) && a.name === assetName && typeof a.browser_download_url === 'string',
+      ) as Record<string, unknown> | undefined
+      if (asset !== undefined && typeof asset.browser_download_url === 'string') {
+        downloadUrl = asset.browser_download_url
+      }
+      checksumUrl = findChecksumAssetUrl(payload.assets as unknown[], assetName)
+    }
+    if (downloadUrl === undefined) {
+      downloadUrl = `https://github.com/${GITHUB_REPO}/releases/download/v${version}/${assetName}`
+    }
+    return checksumUrl === undefined ? { version, downloadUrl } : { version, downloadUrl, checksumUrl }
+  } catch {
+    return undefined
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+/**
+ * Verify a downloaded release asset against its SHA256SUMS manifest text
+ * (fail-closed in every ambiguous shape: a malformed line, a missing entry
+ * for the asset, or multiple bare digests all reject — a release that
+ * publishes a manifest has declared checksums mandatory for its assets).
+ * Both the GNU `hex␣␣name` and `hex␣*name` (binary-mode) line forms parse,
+ * and a single bare `hex` line (a `<asset>.sha256` sidecar) applies to the
+ * one asset it accompanies.
+ *
+ * Trust boundary (explicit scope note): the manifest is fetched from the
+ * SAME release as the asset, so what this check defends against is
+ * download-domain hijacking, cache poisoning, and asset/manifest mix-ups —
+ * any tampering that changes the asset without also controlling the
+ * release's published checksums. It does NOT defend against a fully
+ * compromised release source (attacker publishes matching checksums for
+ * malicious bytes): that requires a signature chain (minisign/cosign with
+ * the public key built into the binary) — a declared follow-up item, out
+ * of this change's scope.
+ *
+ * @param buffer - The downloaded asset bytes.
+ * @param manifestText - SHA256SUMS file content.
+ * @param assetName - Asset file name to look up in the manifest.
+ * @returns true only when the manifest names the asset and the digest matches.
+ */
+export function verifyAssetChecksum(buffer: Buffer, manifestText: string, assetName: string): boolean {
+  const named = new Map<string, string>()
+  let bareHex: string | undefined
+  for (const rawLine of manifestText.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (line === '' || line.startsWith('#')) continue
+    const match = /^([0-9a-fA-F]{64})(?:[ \t]+[ *]?(.*\S))?$/.exec(line)
+    if (match === null) return false
+    const hex = match[1].toLowerCase()
+    const name = match[2]
+    if (name === undefined) {
+      if (bareHex !== undefined) return false
+      bareHex = hex
+    } else {
+      named.set(name, hex)
+    }
+  }
+  const expected = named.get(assetName) ?? (named.size === 0 ? bareHex : undefined)
+  if (expected === undefined) return false
+  return createHash('sha256').update(buffer).digest('hex') === expected
+}
+
+/**
+ * Escape a value for embedding in a PowerShell single-quoted literal: only
+ * `''` needs escaping there (same convention as `buildPsScript` in
+ * src/utils/clipboard.ts). Extract/archive paths derive from environment
+ * variables (`DSH_TUI_STANDALONE_CACHE`), so an unescaped `'` closes the
+ * literal and turns the rest of the path into executable command text.
+ * @param value - Raw string to embed between single quotes.
+ * @returns The value with every `'` doubled.
+ */
+export function escapePsSingleQuoted(value: string): string {
+  return value.replace(/'/g, "''")
+}
+
+/**
+ * How the Windows half of the standalone updater extracts the downloaded zip:
+ * prefer the bsdtar `tar.exe` Windows 10 1809+ ships (it reads zip, and the
+ * array argv never goes through a shell, so there is no quoting surface at
+ * all), and only fall back to `Expand-Archive` when tar is missing — with
+ * both paths escaped as single-quoted literals. Extracted as a pure function
+ * so scripts/verify-update-extract.tsx can pin the no-injection contract.
+ * @param downloadPath - Path of the downloaded archive (attacker-influenced
+ *   via cache-dir environment variables).
+ * @param extractDir - Destination directory for extraction.
+ * @param tarAvailable - Whether `tar --version` ran successfully (probed once
+ *   per update with {@link windowsTarAvailable}).
+ * @returns The child command plus its argv — array form for both tools.
+ */
+export type WindowsExtractPlan =
+  | { tool: 'tar'; args: string[] }
+  | { tool: 'powershell'; args: string[] }
+
+export function windowsExtractPlan(downloadPath: string, extractDir: string, tarAvailable: boolean): WindowsExtractPlan {
+  if (tarAvailable) {
+    return { tool: 'tar', args: ['-xf', downloadPath, '-C', extractDir] }
+  }
+  return {
+    tool: 'powershell',
+    args: [
+      '-NoProfile', '-Command',
+      `Expand-Archive -Path '${escapePsSingleQuoted(downloadPath)}' -DestinationPath '${escapePsSingleQuoted(extractDir)}' -Force`,
+    ],
+  }
+}
+
+/** Probe for the Windows 10+ built-in bsdtar (missing on older LTSC images). */
+function windowsTarAvailable(): boolean {
+  try {
+    execFileSync('tar', ['--version'], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** What {@link validateExtractedTree} says about an extracted release tree. */
+export interface ExtractedTreeCheck {
+  ok: boolean
+  /** First offending entry (path + why) when ok is false. */
+  reason?: string
+}
+
+/**
+ * Zip-slip / symlink guard between extraction and replacement (security
+ * review, medium): walk the freshly extracted tree WITHOUT following links
+ * and require every entry to be a regular file or directory whose resolved
+ * path stays inside the extract dir. GNU tar happily materializes symlink
+ * members pointing outside (verified: `link.txt -> /etc/passwd` lands on
+ * disk), and the follow-up copyFileSync would then read/write through the
+ * link; `../` members are also refused by tar/unzip themselves, but the
+ * prefix check here keeps the guard local and future-proof against a
+ * different extractor. The node-tar strict equivalent (preservePaths: false +
+ * strict) is in standalone/entry.mjs — this covers the system-tool paths
+ * entry.mjs cannot. Symlinks are rejected outright (defense in depth: a
+ * "harmless" in-tree link is still indistinguishable from a hostile one at
+ * this layer), as are fifo/socket/device entries — and hard links (red-team
+ * review): GNU tar refusing external linkname targets is extractor behavior,
+ * not a guarantee this code may lean on (busybox tar and friends land hard
+ * links verbatim), so any regular file with nlink > 1 is refused — a landed
+ * hard link aliases a file this walk never enumerated.
+ * @param extractDir - Directory the archive was extracted into.
+ * @returns ok plus the first offending entry's path.
+ */
+export function validateExtractedTree(extractDir: string): ExtractedTreeCheck {
+  const root = resolve(extractDir)
+  const walk = (dir: string): ExtractedTreeCheck => {
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch (error) {
+      return { ok: false, reason: `unreadable directory ${dir}: ${error instanceof Error ? error.message : String(error)}` }
+    }
+    for (const entry of entries) {
+      const full = resolve(join(dir, entry.name))
+      if (full !== root && !full.startsWith(root + sep)) {
+        return { ok: false, reason: `entry escapes the extract directory: ${full}` }
+      }
+      if (entry.isSymbolicLink()) {
+        return { ok: false, reason: `symbolic link in release archive: ${full}` }
+      }
+      if (entry.isDirectory()) {
+        const sub = walk(full)
+        if (!sub.ok) return sub
+      } else if (!entry.isFile()) {
+        return { ok: false, reason: `non-regular entry in release archive: ${full}` }
+      } else {
+        // Hard-link guard (see header): a regular file with more than one
+        // name on disk aliases something this enumeration never saw.
+        try {
+          if (lstatSync(full).nlink > 1) {
+            return { ok: false, reason: `hard link in release archive (nlink=${lstatSync(full).nlink}): ${full}` }
+          }
+        } catch (error) {
+          return { ok: false, reason: `entry not statable: ${error instanceof Error ? error.message : String(error)}` }
+        }
+      }
+    }
+    return { ok: true }
+  }
+  return walk(root)
+}
+
+/**
+ * Fetch and size-cap a release's SHA256SUMS manifest. Any failure throws —
+ * a release that declares a manifest must actually be verifiable (fail
+ * closed), so the update never silently falls back to unverified bytes.
+ *
+ * The cap is enforced the same two-part way as the main asset download
+ * (see {@link downloadAndReplaceStandaloneBinary}): the declared
+ * content-length rejects before a byte is buffered, and the body is read
+ * through a streaming loop that aborts the connection the moment the
+ * running total passes the cap — a chunked response with no (or a lying)
+ * content-length header is interrupted at the cap instead of buffered
+ * whole by response.text() before the check runs.
+ * @param checksumUrl - Browser download URL of the manifest.
+ * @param maxManifestBytes - Size cap (default
+ *   {@link MAX_CHECKSUM_MANIFEST_BYTES}); tests inject a small value.
+ * @returns The manifest text.
+ */
+async function fetchChecksumManifest(
+  checksumUrl: string,
+  maxManifestBytes: number = MAX_CHECKSUM_MANIFEST_BYTES,
+): Promise<string> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), STANDALONE_DOWNLOAD_TIMEOUT_MS)
+  try {
+    const response = await fetch(checksumUrl, {
+      headers: { 'user-agent': 'dsh-tui-updater' },
+      redirect: 'follow',
+      signal: controller.signal,
+    })
+    if (!response.ok) {
+      throw new Error(`checksum manifest fetch failed: HTTP ${response.status} ${response.statusText}`)
+    }
+    const declared = Number(response.headers.get('content-length') ?? Number.NaN)
+    if (Number.isFinite(declared) && declared > maxManifestBytes) {
+      throw new Error(`checksum manifest declares ${declared} bytes, over the ${maxManifestBytes} cap`)
+    }
+    if (response.body === null) {
+      throw new Error('checksum manifest response has no body stream')
+    }
+    const reader = response.body.getReader()
+    const chunks: Uint8Array[] = []
+    let received = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done === true) break
+      received += value.byteLength
+      if (received > maxManifestBytes) {
+        controller.abort()
+        try { await reader.cancel() } catch { /* already aborted */ }
+        throw new Error(`checksum manifest streamed past ${received} bytes, over the ${maxManifestBytes} cap`)
+      }
+      chunks.push(value)
+    }
+    return Buffer.concat(chunks, received).toString('utf8')
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+/** Options for {@link downloadAndReplaceStandaloneBinary} — injectable for tests. */
+export interface StandaloneDownloadOptions {
+  /**
+   * Override the asset size cap (default {@link MAX_ASSET_BYTES}). Tests
+   * inject a small value so the mid-stream abort path runs in milliseconds.
+   */
+  maxAssetBytes?: number
+  /**
+   * Override the checksum-manifest size cap (default
+   * {@link MAX_CHECKSUM_MANIFEST_BYTES}). Tests inject a small value so the
+   * manifest's own mid-stream abort path runs against a local unbounded
+   * server stream.
+   */
+  maxChecksumManifestBytes?: number
+}
+
+/**
+ * Download the new standalone release binary package and atomically replace the running binary.
+ *
+ * Integrity (security review, high): when the caller resolved a SHA256SUMS
+ * manifest URL for the release, the downloaded bytes must match the manifest
+ * digest before anything is extracted or replaced — a mismatch (or an
+ * unreadable/malformed manifest) deletes the downloaded file and fails the
+ * update closed. Releases without any manifest still update, but the progress
+ * channel carries an explicit "no checksum" warning.
+ * TODO(next major): make the manifest mandatory — a release that publishes no
+ * checksums will then be refused outright instead of warned about.
+ *
+ * @param downloadUrl - Direct URL to download the release archive.
+ * @param onProgress - Optional callback invoked with progress status strings.
+ * @param checksumUrl - SHA256SUMS manifest URL for the release, when known.
+ * @param options - Injectable download limits (tests pass a small cap).
+ * @returns Object indicating success or an error message on failure.
+ */
+export async function downloadAndReplaceStandaloneBinary(
+  downloadUrl: string,
+  onProgress?: (text: string) => void,
+  checksumUrl?: string,
+  options: StandaloneDownloadOptions = {},
+): Promise<{ success: boolean; error?: string }> {
+  const maxAssetBytes = options.maxAssetBytes ?? MAX_ASSET_BYTES
+  const tempDir = join(
+    process.env.DSH_TUI_STANDALONE_CACHE ?? join(homedir(), '.cache', 'dsh-tui-standalone'),
+    `.update-${Date.now()}-${process.pid}`,
+  )
+  try {
+    const currentBinary = getStandaloneBinaryPath()
+    const targetDir = dirname(currentBinary)
+    const assetName = getStandaloneAssetName()
+    const isZip = assetName.endsWith('.zip')
+    mkdirSync(tempDir, { recursive: true })
+    const downloadPath = join(tempDir, assetName)
+
+    onProgress?.(`downloading: ${downloadUrl}`)
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), STANDALONE_DOWNLOAD_TIMEOUT_MS)
+    let response: Response
+    try {
+      response = await fetch(downloadUrl, {
+        headers: { 'user-agent': 'dsh-tui-updater' },
+        redirect: 'follow',
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timeout)
+    }
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} ${response.statusText}`)
+    }
+    // Size cap, part 1: the declared length rejects before a single body byte
+    // is buffered. Part 2 (the streaming loop below) aborts a chunked
+    // response mid-transfer at the same cap — a stream without a
+    // content-length header never gets buffered whole.
+    const declaredLength = Number(response.headers.get('content-length') ?? Number.NaN)
+    if (Number.isFinite(declaredLength) && declaredLength > maxAssetBytes) {
+      throw new Error(`release asset declares ${declaredLength} bytes, over the ${maxAssetBytes} download cap`)
+    }
+    if (response.body === null) {
+      throw new Error('release asset response has no body stream')
+    }
+    // Size cap, part 2: stream the body and abort the connection the moment
+    // the running total passes the cap. The read-then-check pattern this
+    // replaces buffered the whole transfer first (a 96MB headerless response
+    // was measured resident at ~3x before the check ran), so a hostile
+    // unbounded stream could OOM the process; now the excess is never read.
+    const reader = response.body.getReader()
+    const chunks: Buffer[] = []
+    let received = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done === true) break
+      received += value.byteLength
+      if (received > maxAssetBytes) {
+        controller.abort()
+        try { await reader.cancel() } catch { /* already aborted */ }
+        throw new Error(`release asset streamed past ${received} bytes, over the ${maxAssetBytes} download cap`)
+      }
+      chunks.push(Buffer.from(value))
+    }
+    const buffer = Buffer.concat(chunks, received)
+    writeFileSync(downloadPath, buffer)
+
+    if (checksumUrl === undefined) {
+      // Transition period: releases published before the checksum workflow
+      // carry no manifest. Continue, but say so — silent degradation is how
+      // the unverified-download window survived review in the first place.
+      onProgress?.('warning: release publishes no SHA256SUMS — asset integrity cannot be verified (this will become a hard failure in the next major version)')
+    } else {
+      onProgress?.('verifying checksum…')
+      const manifest = await fetchChecksumManifest(
+        checksumUrl,
+        options.maxChecksumManifestBytes ?? MAX_CHECKSUM_MANIFEST_BYTES,
+      )
+      if (!verifyAssetChecksum(buffer, manifest, assetName)) {
+        // Fail closed: never leave a mismatching (potentially hostile) asset
+        // on disk for a later retry to pick up, and never extract it.
+        try { rmSync(downloadPath, { force: true }) } catch { /* already gone */ }
+        throw new Error('SHA256 checksum mismatch: downloaded asset does not match the release SHA256SUMS manifest')
+      }
+      onProgress?.('checksum verified')
+    }
+
+    onProgress?.('extracting…')
+    const extractDir = join(tempDir, 'extracted')
+    mkdirSync(extractDir, { recursive: true })
+
+    if (isZip) {
+      if (process.platform === 'win32') {
+        // Array argv both ways: tar.exe (Win10+ bsdtar) has no shell quoting
+        // surface, and the Expand-Archive fallback escapes both paths as
+        // single-quoted literals — the paths derive from user environment
+        // variables, so a raw `'` must never reach the command text.
+        const plan = windowsExtractPlan(downloadPath, extractDir, windowsTarAvailable())
+        execFileSync(plan.tool, plan.args)
+      } else {
+        execFileSync('unzip', ['-o', downloadPath, '-d', extractDir])
+      }
+    } else {
+      execFileSync('tar', ['-xzf', downloadPath, '-C', extractDir])
+    }
+
+    // Zip-slip / symlink guard (see validateExtractedTree): nothing from the
+    // archive may be followed out of the extract dir before the replace.
+    const treeCheck = validateExtractedTree(extractDir)
+    if (!treeCheck.ok) {
+      throw new Error(`unsafe release archive rejected: ${treeCheck.reason ?? 'unknown extraction anomaly'}`)
+    }
+
+    const binaryName = process.platform === 'win32' ? 'dsh-tui.exe' : 'dsh-tui'
+    const newBinaryPath = join(extractDir, binaryName)
+    if (!existsSync(newBinaryPath)) {
+      throw new Error('No executable binary found in release archive')
+    }
+    // The replacement source itself must be a plain regular file — a symlink
+    // or device at exactly the expected name is the sharpest zip-slip probe
+    // (copyFileSync would follow it).
+    let newBinaryStat
+    try {
+      newBinaryStat = lstatSync(newBinaryPath)
+    } catch {
+      throw new Error(`expected binary entry unreadable: ${newBinaryPath}`)
+    }
+    if (!newBinaryStat.isFile()) {
+      throw new Error(`expected binary entry is not a regular file: ${newBinaryPath}`)
+    }
+
+    onProgress?.('replacing binary…')
+    if (process.platform !== 'win32') {
+      try { chmodSync(newBinaryPath, 0o755) } catch {}
+    }
+
+    if (process.platform === 'win32') {
+      const oldBinary = `${currentBinary}.old`
+      try { rmSync(oldBinary, { force: true }) } catch {}
+      renameSync(currentBinary, oldBinary)
+      try {
+        copyFileSync(newBinaryPath, currentBinary)
+      } catch (copyError) {
+        // Restore the original executable if copying the new binary failed.
+        try { renameSync(oldBinary, currentBinary) } catch {}
+        throw copyError
+      }
+    } else {
+      const stagedTarget = join(targetDir, `.dsh-tui-new-${process.pid}`)
+      copyFileSync(newBinaryPath, stagedTarget)
+      chmodSync(stagedTarget, 0o755)
+      renameSync(stagedTarget, currentBinary)
+    }
+
+    try { rmSync(tempDir, { recursive: true, force: true }) } catch {}
+    return { success: true }
+  } catch (error) {
+    try { rmSync(tempDir, { recursive: true, force: true }) } catch {}
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/**
  * Classify this install against a fresh registry lookup: an update is
  * available, the install is already latest, or the answer is unknown
  * (offline / registry error / unreadable own version).
@@ -230,6 +827,27 @@ export async function resolveTuiUpdateTarget(): Promise<TuiUpdateTarget> {
   const current = installedTuiVersion()
   const currentVersion = current === undefined ? null : valid(current)
   if (currentVersion === null) return { kind: 'unknown' }
+
+  if (isStandaloneRuntime()) {
+    const ghRelease = await fetchGithubLatestRelease()
+    const latest = ghRelease?.version ?? (await fetchLatestVersion(resolveRegistryBase()))
+    if (latest === undefined) return { kind: 'unknown' }
+    if (!gt(latest, currentVersion)) return { kind: 'latest', current: currentVersion, isStandalone: true }
+    const downloadUrl = ghRelease?.downloadUrl ?? `https://github.com/${GITHUB_REPO}/releases/download/v${latest}/${getStandaloneAssetName()}`
+    // Mirror fallback (GitHub API timed out, version came from a registry):
+    // the asset list — and with it the manifest URL — is lost, so probe the
+    // fixed-name SHA256SUMS on the same direct-download host. Found → the
+    // download verifies exactly like the primary path (a tampered asset is
+    // refused); 404/absent → the transition warning path stays for releases
+    // that predate the checksum workflow (every new release ships one —
+    // release-bundle.yml generates it alongside the assets).
+    const checksumUrl = ghRelease !== undefined
+      ? ghRelease.checksumUrl
+      : await probeChecksumManifestUrl(releaseChecksumUrl(latest))
+    return checksumUrl === undefined
+      ? { kind: 'update', current: currentVersion, latest, isStandalone: true, downloadUrl }
+      : { kind: 'update', current: currentVersion, latest, isStandalone: true, downloadUrl, checksumUrl }
+  }
 
   const registryBase = resolveRegistryBase()
   const [latest, official] = await Promise.all([
@@ -249,7 +867,15 @@ export async function resolveTuiUpdateTarget(): Promise<TuiUpdateTarget> {
  */
 export async function checkForTuiUpdate(): Promise<TuiUpdateInfo | undefined> {
   const target = await resolveTuiUpdateTarget()
-  return target.kind === 'update' ? { current: target.current, latest: target.latest } : undefined
+  return target.kind === 'update'
+    ? {
+        current: target.current,
+        latest: target.latest,
+        isStandalone: target.isStandalone,
+        downloadUrl: target.downloadUrl,
+        checksumUrl: target.checksumUrl,
+      }
+    : undefined
 }
 
 interface ProcessOptions {  env?: NodeJS.ProcessEnv
@@ -319,8 +945,8 @@ export function tuiUpdatePluginArgs(profile: string, targetVersion?: string): st
 }
 
 /**
- * Postinstall-only transitive dependencies of the dsh-tui chain
- * (dsh-auth → @earendil-works/pi-ai → @google/genai + protobufjs, plus the
+ * Postinstall-only transitive dependencies of the dsh profile chain
+ * (dsh-llm-pi-ai → @earendil-works/pi-ai → @google/genai + protobufjs, plus the
  * esbuild/koffi peers of that chain): pnpm ≥11 refuses to run their build
  * scripts unless the workspace allowlists them, and a profile that never
  * opted in fails the WHOLE install with ERR_PNPM_IGNORED_BUILDS. None of
@@ -412,6 +1038,90 @@ export function ensureProfileAllowBuilds(profile: string): AllowBuildsOutcome | 
     }
     writeFileSync(yamlPath, `${lines.join('\n')}\n`)
     return { existing: [...present], added }
+  } catch {
+    return undefined
+  }
+}
+
+/** What ensureProfileReleaseAgeExclude did to the profile workspace file. */
+export interface ReleaseAgeExcludeOutcome {
+  /** Final exclude entries after the run (ours plus preserved foreign ones). */
+  entries: string[]
+  /** True when the file was written (entry added or stale entry replaced). */
+  changed: boolean
+}
+
+/**
+ * pnpm ≥11 delays installs of packages published within `minimumReleaseAge`
+ * (24h by default) — on release day that gate refuses the very version
+ * `/update` is installing (ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION), which
+ * reads to the user as a broken update until the window passes. Pre-seed the
+ * profile's pnpm-workspace.yaml with a release-age exclusion scoped to this
+ * package at the exact target version — the same best-effort, idempotent
+ * pattern as {@link ensureProfileAllowBuilds}: foreign entries are preserved,
+ * an existing entry for this package is replaced (one entry tracks the current
+ * target instead of accumulating), a missing `minimumReleaseAgeExclude` block
+ * is appended, a missing file is created, and an absent profile directory
+ * resolves to undefined — the caller still runs pnpm, whose own diagnostic
+ * stays the visible fallback.
+ */
+export function ensureProfileReleaseAgeExclude(
+  profile: string,
+  version: string,
+): ReleaseAgeExcludeOutcome | undefined {
+  const yamlPath = profileWorkspaceYamlPath(profile)
+  try {
+    if (!existsSafe(dirname(yamlPath))) return undefined
+    let text = ''
+    try {
+      text = readFileSync(yamlPath, 'utf8')
+    } catch {
+      // Missing file — start from an empty document; writeFileSync creates it.
+    }
+    const entry = `${PACKAGE_NAME}@${version}`
+    const lines = text.split(/\r?\n/u)
+    let blockStart = -1
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i]
+      if (line !== '' && line === line.trimStart() && /^minimumReleaseAgeExclude:/u.test(line)) {
+        blockStart = i
+        break
+      }
+    }
+    /** Item text of a list line, unquoted (`- 'x@1'` / `- x@1` → `x@1`). */
+    const itemOf = (line: string): string => line.trim().replace(/^-\s*/u, '').replace(/^'(.*)'$/u, '$1')
+    const foreign: string[] = []
+    let blockEnd = -1
+    let alreadyCurrent = false
+    if (blockStart !== -1) {
+      blockEnd = blockStart + 1
+      for (let i = blockStart + 1; i < lines.length; i += 1) {
+        const line = lines[i]
+        if (line === '' || line === line.trimStart()) break // dedent = block ends
+        blockEnd = i + 1
+        const item = itemOf(line)
+        if (item === entry) {
+          alreadyCurrent = true
+          foreign.push(line)
+        } else if (!item.startsWith(`${PACKAGE_NAME}@`)) {
+          foreign.push(line)
+        }
+        // Stale entries for THIS package (older targets) are dropped above.
+      }
+    }
+    if (alreadyCurrent) {
+      const entries = [entry, ...lines.slice(blockStart + 1, blockEnd).map(itemOf)]
+      return { entries, changed: false }
+    }
+    const insert = foreign.concat(`  - '${entry}'`)
+    if (blockStart !== -1) {
+      lines.splice(blockStart + 1, blockEnd - blockStart - 1, ...insert)
+    } else {
+      if (lines.length > 0 && lines[lines.length - 1] !== '') lines.push('')
+      lines.push('minimumReleaseAgeExclude:', ...insert)
+    }
+    writeFileSync(yamlPath, `${lines.join('\n')}\n`)
+    return { entries: [...foreign.map(itemOf), entry], changed: true }
   } catch {
     return undefined
   }
@@ -617,6 +1327,31 @@ export async function updateTui(
   // process then compares new-vs-new and false-alarms "version did not
   // advance" on every successful update (issue #307's screenshots).
   const updatedFrom = installedTuiVersion() ?? ''
+
+  if (isStandaloneRuntime()) {
+    const target = await resolveTuiUpdateTarget()
+    const latestVersion = targetVersion ?? (target.kind === 'update' ? target.latest : undefined)
+    const downloadUrl = (target.kind === 'update' && target.downloadUrl)
+      ? target.downloadUrl
+      : (latestVersion ? `https://github.com/${GITHUB_REPO}/releases/download/v${latestVersion}/${getStandaloneAssetName()}` : undefined)
+    const checksumUrl = target.kind === 'update' ? target.checksumUrl : undefined
+
+    if (downloadUrl === undefined || latestVersion === undefined) {
+      process.stderr.write('dsh-tui: 无法解析便携包更新下载地址\n')
+      return { code: 1, updatedFrom }
+    }
+
+    process.stderr.write(`dsh-tui: 正在更新便携包 (${updatedFrom || 'current'} → ${latestVersion})…\n`)
+    const result = await downloadAndReplaceStandaloneBinary(downloadUrl, msg => {
+      process.stderr.write(`dsh-tui: ${msg}\n`)
+    }, checksumUrl)
+    if (!result.success) {
+      process.stderr.write(`dsh-tui: 便携包更新失败: ${result.error ?? '未知错误'}\n`)
+      return { code: 1, updatedFrom }
+    }
+    return { code: 0, updatedFrom, installed: latestVersion }
+  }
+
   const dsh = process.platform === 'win32' ? 'dsh.cmd' : 'dsh'
   const updateArgs = tuiUpdatePluginArgs(profile, targetVersion)
   // pnpm ≥11 hard-fails installs whose dependency tree carries un-allowlisted
@@ -629,6 +1364,20 @@ export async function updateTui(
       `dsh-tui: pre-seeded profile pnpm allowBuilds (${allowBuilds.added.join(', ')}) — ` +
         'postinstall-only deps are explicitly ignored\n',
     )
+  }
+  // pnpm ≥11's minimumReleaseAge (24h by default) refuses installs of
+  // packages published within the window — on release day that gate rejects
+  // the exact version /update pins, surfacing as a failed update that heals
+  // itself a day later. Scope-exempt this package at the exact target before
+  // pnpm runs (release-day /update parity with the allowBuilds seed above).
+  if (targetVersion !== undefined) {
+    const releaseAge = ensureProfileReleaseAgeExclude(profile, targetVersion)
+    if (releaseAge !== undefined && releaseAge.changed) {
+      process.stderr.write(
+        `dsh-tui: pre-seeded profile release-age exclusion (${PACKAGE_NAME}@${targetVersion}) — ` +
+          'a freshly published version installs without the 24h supply-chain delay\n',
+      )
+    }
   }
   let updateStderr = ''
   const capture = (chunk: string): void => { updateStderr += chunk }
@@ -764,6 +1513,18 @@ export async function cliUpdate(profile: string): Promise<number> {
   if (target.kind === 'latest') {
     process.stdout.write(`dsh-tui: already the latest version (${target.current}).\n`)
     return 0
+  }
+  if (isStandaloneRuntime()) {
+    if (target.kind === 'update') {
+      process.stdout.write(`dsh-tui: updating standalone binary ${target.current} → ${target.latest}…\n`)
+      const outcome = await updateTui(profile, target.latest)
+      if (outcome.code === 0) {
+        process.stdout.write(`dsh-tui: standalone binary updated successfully (${outcome.updatedFrom || target.current} → ${outcome.installed}).\n`)
+      }
+      return outcome.code
+    }
+    process.stderr.write('dsh-tui: version check failed (offline or unreachable registry).\n')
+    return 1
   }
   let targetVersion: string | undefined
   if (target.kind === 'update') {

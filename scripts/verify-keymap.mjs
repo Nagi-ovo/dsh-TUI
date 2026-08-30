@@ -43,7 +43,7 @@ import {
   resetKeymapOverrides,
   setKeymapOverrides,
 } from '../lib/types/utils/keymap.js'
-import { settle, viewportLines } from './lib/term-test.mjs'
+import { settle, settled, sleep, viewportLines } from './lib/term-test.mjs'
 
 let failed = 0
 function check(name, ok, extra = '') {
@@ -93,6 +93,7 @@ check('other actions keep their defaults reserved', reserved.has('ctrl+o') && re
 check('fixed: ctrl+u kill-line reserved', isFixedReserved('ctrl+u'))
 check('fixed: ctrl+return reserved', isFixedReserved('ctrl+return'))
 check('fixed: ctrl+w reserved', isFixedReserved('ctrl+w'))
+check('fixed: ctrl+j newline fallback reserved', isFixedReserved('ctrl+j'))
 check('free combo not reserved', !isFixedReserved('ctrl+n'))
 
 // ---- settings drafts ------------------------------------------------------
@@ -108,6 +109,14 @@ check('conflict: history → ctrl+v refused (owned by paste)', draftComboConflic
 check('conflict: paste → ctrl+u refused (fixed kill-line)', draftComboConflicts('paste', ['ctrl+u']))
 check('no conflict: history restating ctrl+r', !draftComboConflicts('history', ['ctrl+r']))
 check('no conflict: fresh combo ctrl+n', !draftComboConflicts('history', ['ctrl+n']))
+// Restating an action's OWN default (even one that is also fixed-reserved
+// for the editor, like dashboard's ctrl+a / showAll's ctrl+e) changes
+// nothing about what shadows what — it must not read as a conflict.
+check('no conflict: dashboard restating its fixed-reserved default ctrl+a', !draftComboConflicts('dashboard', ['ctrl+a']))
+check('no conflict: showAll restating its fixed-reserved default ctrl+e', !draftComboConflicts('showAll', ['ctrl+e']))
+check('conflict: showAll claiming ctrl+a (dashboard owns it)', draftComboConflicts('showAll', ['ctrl+a']))
+check('conflict: dashboard claiming ctrl+e (showAll owns it)', draftComboConflicts('dashboard', ['ctrl+e']))
+check('conflict: another action cannot borrow the fixed ctrl+u', draftComboConflicts('dashboard', ['ctrl+u']))
 resetKeymapOverrides()
 
 // ---- live Chat: Alt+V triggers the paste branch ---------------------------
@@ -120,7 +129,6 @@ resetKeymapOverrides()
 // spawning a real editor that would hold the output pipes open.
 delete process.env.VISUAL
 delete process.env.EDITOR
-const sleep = ms => new Promise(r => setTimeout(r, ms))
 const term = new XTerm({ cols: 110, rows: 34, scrollback: 100, allowProposedApi: true })
 
 function makeStreams() {
@@ -227,23 +235,22 @@ const screen = () => viewportLines(term).join('\n')
 const promptText = () => {
   // Anchored at line start: the input border rows and hint lines can carry
   // a mid-line '>', but only the prompt row begins with the '❯' glyph. The
-  // EMPTY prompt renders box-drawing decoration on the same row, so strip
-  // it before comparing content.
+  // EMPTY prompt renders box-drawing decoration on the same row, and the
+  // row now also ends with the ⛶ expand-editor affordance — strip both
+  // before comparing content.
   const match = screen().match(/^[❯]\s*(.*)$/m)
   const raw = match === null ? '' : (match[1] ?? '')
-  return raw.replace(/[╭╮╰╯─│═║]+/g, '').trim()
+  return raw.replace(/[╭╮╰╯─│═║⛶]+/g, '').trim()
 }
 const clipboardNotice = () => notifications.some(n => /clipboard|剪贴板/i.test(String(n.text)))
 
 // Baseline: a plain 'v' types normally.
 stdin.write('v')
-await settle(() => promptText() === 'v')
-check('plain v types', promptText() === 'v', JSON.stringify(promptText()))
+check('plain v types', await settled(() => promptText() === 'v'), JSON.stringify(promptText()))
 
 // Ctrl+C clears the non-empty prompt (idle single press).
 stdin.write('\x03')
-await settle(() => promptText() === '')
-check('ctrl+c clears the prompt', promptText() === '', JSON.stringify(promptText()))
+check('ctrl+c clears the prompt', await settled(() => promptText() === ''), JSON.stringify(promptText()))
 
 // Alt+V arrives as ESC v. Whatever the clipboard holds, the paste branch
 // must consume the key: a prompt change or a clipboard notification are
@@ -251,10 +258,9 @@ check('ctrl+c clears the prompt', promptText() === '', JSON.stringify(promptText
 const beforeAltV = promptText()
 notifications.length = 0
 stdin.write('\x1bv')
-await settle(() => promptText() !== beforeAltV || clipboardNotice())
 check(
   'alt+v reaches the clipboard paste branch',
-  promptText() !== beforeAltV || clipboardNotice(),
+  await settled(() => promptText() !== beforeAltV || clipboardNotice()),
   JSON.stringify({ before: beforeAltV, after: promptText(), notices: notifications.map(n => n.text) }),
 )
 check('alt+v does not type a bare v on an empty clipboard', clipboardNotice() || promptText() !== 'v')
@@ -265,10 +271,9 @@ await settle(() => promptText() === '')
 const beforeCtrlV = promptText()
 notifications.length = 0
 stdin.write('\x16')
-await settle(() => promptText() !== beforeCtrlV || clipboardNotice())
 check(
   'ctrl+v reaches the clipboard paste branch',
-  promptText() !== beforeCtrlV || clipboardNotice(),
+  await settled(() => promptText() !== beforeCtrlV || clipboardNotice()),
   JSON.stringify({ before: beforeCtrlV, after: promptText(), notices: notifications.map(n => n.text) }),
 )
 
@@ -280,8 +285,7 @@ await settle(() => promptText() === '')
 setKeymapOverrides({ editor: 'alt+g' })
 notifications.length = 0
 stdin.write('\x1bg')
-await settle(() => notifications.some(n => /editor|编辑器/i.test(String(n.text))))
-const editorNotice = notifications.some(n => /editor|编辑器/i.test(String(n.text)))
+const editorNotice = await settled(() => notifications.some(n => /editor|编辑器/i.test(String(n.text))))
 check('remapped alt+g editor key does not type g', promptText() !== 'g', JSON.stringify(promptText()))
 check('remapped editor key reached the editor path (notify seen)', editorNotice, JSON.stringify(notifications.map(n => n.text)))
 check('default ctrl+g no longer matches after remap', !actionMatches('editor', 'g', { ctrl: true }))

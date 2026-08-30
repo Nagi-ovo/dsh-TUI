@@ -18,9 +18,10 @@ import { FRAME_INTERVAL_MS, PTY_BACKLOG_BYTES } from './constants.js';
 import * as dom from './dom.js';
 import { beginGeometryFrame, endGeometryFrame, GEOMETRY_TRACE_ENABLED, noteFrameCause } from './geometry-trace.js';
 import { KeyboardEvent } from './events/keyboard-event.js';
+import type { DragEvent } from './events/drag-event.js';
 import { FocusManager } from './focus.js';
 import { emptyFrame, type Frame, type FrameEvent } from './frame.js';
-import { dispatchClick, dispatchHover, dispatchWheel, clearHovered } from './hit-test.js';
+import { dispatchClick, dispatchContextMenu, dispatchDragEvent as bubbleDragEvent, dispatchHover, dispatchWheel, findDragTarget, clearHovered, invalidateNoInterestRect } from './hit-test.js';
 import { logMouseDebug } from '../utils/debug.js';
 import instances from './instances.js';
 import { suppressInputFor } from './input-suppression.js';
@@ -36,7 +37,7 @@ import createRenderer, { type Renderer } from './renderer.js';
 import { CellWidth, CharPool, cellAt, createScreen, HyperlinkPool, isEmptyCellAt, migrateScreenPools, StylePool } from './screen.js';
 import { applySearchHighlight } from './searchHighlight.js';
 import { applySelectionOverlay, captureScrolledRows, clearSelection, createSelectionState, extendSelection, type FocusMove, findPlainTextUrlAt, getSelectedText, hasSelection, moveFocus, pickFollowForSelection, type SelectionState, selectLineAt, selectWordAt, shiftAnchor, shiftSelection, shiftSelectionForFollow, startSelection, updateSelection } from './selection.js';
-import { isDecstbmSafe, SYNC_OUTPUT_SUPPORTED, serializeDiff, supportsExtendedKeys, supportsWin32InputMode, type Terminal, writeDiffToTerminal } from './terminal.js';
+import { isDecstbmSafe, SYNC_OUTPUT_SUPPORTED, serializeDiff, supportsDecrqmProbe, supportsExtendedKeys, supportsWin32InputMode, type Terminal, writeDiffToTerminal } from './terminal.js';
 import { CURSOR_HOME, cursorMove, cursorPosition, DISABLE_KITTY_KEYBOARD, DISABLE_MODIFY_OTHER_KEYS, DISABLE_WIN32_INPUT_MODE, ENABLE_KITTY_KEYBOARD, ENABLE_MODIFY_OTHER_KEYS, ENABLE_WIN32_INPUT_MODE, ERASE_SCREEN, ERASE_SCROLLBACK, SGR_RESET } from './termio/csi.js';
 import { DBP, DFE, DISABLE_MOUSE_TRACKING, ENABLE_MOUSE_TRACKING, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN, SHOW_CURSOR } from './termio/dec.js';
 import { CLEAR_ITERM2_PROGRESS, CLEAR_TAB_STATUS, setClipboard, supportsTabStatus, wrapForMultiplexer } from './termio/osc.js';
@@ -277,6 +278,13 @@ export default class Ink {
     this.rootNode.onRender = this.scheduleRender;
     this.rootNode.onImmediateRender = this.renderNow;
     this.rootNode.onComputeLayout = () => {
+      // Hover no-interest cache (hit-test.ts) is strictly per-frame: every
+      // React commit may attach or detach hover handlers, so drop the cache
+      // at the COMMIT boundary. The renderer also invalidates at the top of
+      // each render pass, but that runs up to a frame later (throttled
+      // scheduleRender) — invalidating here closes the gap so a motion
+      // event inside that window re-hit-tests against the fresh tree.
+      invalidateNoInterestRect();
       // Calculate layout during React's commit phase so useLayoutEffect hooks
       // have access to fresh layout data
       // Guard against accessing freed Yoga nodes after unmount
@@ -366,6 +374,9 @@ export default class Ink {
     // App boundary against the new dimensions.)
     clearHovered(this.hoveredNodes);
     this.app?.resetPointerState();
+    // Same geometry wholesale-change: the cached no-interest hover rect
+    // (hit-test.ts) was computed against pre-resize rects — drop it.
+    invalidateNoInterestRect();
 
     // Invalidate every render that was scheduled against the OLD size: a
     // queued microtask generation or a scroll-drain timer would otherwise
@@ -1110,16 +1121,22 @@ export default class Ink {
    */
   setAltScreenActive(active: boolean, mouseTracking = false): void {
     if (this.altScreenActive === active) return;
+    const resetOldPointerContext = (): void => {
+      // Fire leave handlers before dropping the set — a bare clear strands
+      // old rows with hovered=true. resetPointerState also emits dragend for
+      // a captured drag before its geometry disappears.
+      clearHovered(this.hoveredNodes);
+      this.app?.resetPointerState();
+      invalidateNoInterestRect();
+    };
+    // Leaving must settle dragend WHILE the dispatch gate is still active;
+    // flipping altScreenActive first would silently drop the cleanup event.
+    if (!active) resetOldPointerContext();
     this.altScreenActive = active;
     this.altScreenMouseTracking = active && mouseTracking;
-    // Screen geometry/context just changed wholesale: hover sets, the
-    // multi-click chain, and any pending hyperlink open belong to the old
-    // screen. Fire leave handlers before dropping the set — a bare clear()
-    // strands the old screen's rows with hovered=true forever (stuck
-    // highlights). Stale clickCount would turn the first click into a
-    // double-click; stale hovered nodes would suppress real onMouseEnter.
-    clearHovered(this.hoveredNodes);
-    this.app?.resetPointerState();
+    // Entering has no old alt-screen drag to notify, but the main-screen
+    // hover/click geometry still needs to be cleared after the gate flips.
+    if (active) resetOldPointerContext();
     if (active) {
       this.mainScreenFrameState = {
         frontFrame: this.frontFrame,
@@ -1354,6 +1371,12 @@ export default class Ink {
     }
     const querier = this.app?.querier;
     if (querier === undefined) return;
+    // macOS Terminal.app prints the trailing `p` of `CSI ? 1049 $ p` as
+    // literal text instead of ignoring the unsupported query, leaking a
+    // visible character at the cursor on every probe. The blind
+    // mouse-tracking re-assert above still runs there — only the round trip
+    // is skipped, which costs nothing: Terminal.app never answered it.
+    if (!supportsDecrqmProbe()) return;
     void Promise.all([querier.send(decrqm(1049)), querier.flush()]).then(([reply]) => {
       // DECRPM status: 1/3 = set, 2/4 = reset, 0/undefined = unknown.
       // Heal only on a POSITIVE reset — an unanswered probe must not
@@ -1697,6 +1720,24 @@ export default class Ink {
     return handled;
   }
   /**
+   * Hit-test the rendered DOM tree at (col, row) and bubble a
+   * ContextMenuEvent from the deepest hit node up through ancestors with
+   * onContextMenu handlers. Returns true if a DOM handler consumed it.
+   * Gated on altScreenActive like dispatchClick. The button byte is the
+   * raw SGR press code; its low bits are 2 for the right button and the
+   * modifier bits land on ContextMenuEvent.shift/alt/ctrl.
+   */
+  dispatchContextMenu(col: number, row: number, button = 0): boolean {
+    this.probeAltScreenHealth();
+    if (!this.altScreenActive) {
+      logMouseDebug('dispatchContextMenu skipped — alt screen inactive', { col, row });
+      return false;
+    }
+    const handled = dispatchContextMenu(this.rootNode, col, row, button);
+    logMouseDebug('dispatchContextMenu', { col, row, handled });
+    return handled;
+  }
+  /**
    * Route a wheel event to the ScrollBox (any onWheel handler) under the
    * pointer. Returns true when a handler consumed it, so App can skip the
    * legacy global wheel-key path and exactly one layer scrolls. Gated on
@@ -1722,6 +1763,32 @@ export default class Ink {
     this.probeAltScreenHealth();
     if (!this.altScreenActive) return;
     dispatchHover(this.rootNode, col, row, this.hoveredNodes);
+  }
+  /**
+   * Drag protocol entry: find the drag target at an unmodified left
+   * press — the deepest node at (col, row) whose ancestor chain carries
+   * an onDragStart handler. Gated on altScreenActive like dispatchClick
+   * (drag needs mouse tracking + a fixed viewport). Returns null when no
+   * drag target is under the pointer, in which case App keeps the
+   * baseline selection/click path untouched.
+   */
+  findDragTargetAt(col: number, row: number): dom.DOMElement | null {
+    this.probeAltScreenHealth();
+    if (!this.altScreenActive) return null;
+    const target = findDragTarget(this.rootNode, col, row);
+    logMouseDebug('findDragTargetAt', { col, row, found: Boolean(target) });
+    return target;
+  }
+  /**
+   * Dispatch a drag event to the drag session target captured at press
+   * time (bubbles through its ancestors). Gated on altScreenActive like
+   * dispatchClick.
+   */
+  dispatchDrag(target: dom.DOMElement, event: DragEvent): void {
+    this.probeAltScreenHealth();
+    if (!this.altScreenActive) return;
+    logMouseDebug('dispatchDrag', { type: event.type, col: event.col, row: event.row });
+    bubbleDragEvent(target, event);
   }
   dispatchKeyboardEvent(parsedKey: ParsedKey): void {
     this.probeAltScreenHealth();
@@ -1920,7 +1987,7 @@ export default class Ink {
   }
   render(node: ReactNode): void {
     this.currentNode = node;
-    const tree = <App ref={this.setAppRef} stdin={this.options.stdin} stdout={this.options.stdout} stderr={this.options.stderr} exitOnCtrlC={this.options.exitOnCtrlC} onExit={this.unmount} terminalColumns={this.terminalColumns} terminalRows={this.terminalRows} selection={this.selection} onSelectionChange={this.notifySelectionChange} onClickAt={this.dispatchClick} onHoverAt={this.dispatchHover} onWheelAt={this.dispatchWheelAt} getHyperlinkAt={this.getHyperlinkAt} onOpenHyperlink={this.openHyperlink} onMultiClick={this.handleMultiClick} onSelectionDrag={this.handleSelectionDrag} onStdinResume={this.reassertTerminalModes} onTerminalFocus={this.handleTerminalFocusProbe} onCursorDeclaration={this.setCursorDeclaration} dispatchKeyboardEvent={this.dispatchKeyboardEvent}>
+    const tree = <App ref={this.setAppRef} stdin={this.options.stdin} stdout={this.options.stdout} stderr={this.options.stderr} exitOnCtrlC={this.options.exitOnCtrlC} onExit={this.unmount} terminalColumns={this.terminalColumns} terminalRows={this.terminalRows} selection={this.selection} onSelectionChange={this.notifySelectionChange} onClickAt={this.dispatchClick} onContextMenuAt={this.dispatchContextMenu} onHoverAt={this.dispatchHover} onWheelAt={this.dispatchWheelAt} getHyperlinkAt={this.getHyperlinkAt} onOpenHyperlink={this.openHyperlink} onMultiClick={this.handleMultiClick} onSelectionDrag={this.handleSelectionDrag} onDragTargetAt={this.findDragTargetAt} onDragDispatch={this.dispatchDrag} onStdinResume={this.reassertTerminalModes} onTerminalFocus={this.handleTerminalFocusProbe} onCursorDeclaration={this.setCursorDeclaration} dispatchKeyboardEvent={this.dispatchKeyboardEvent}>
         <TerminalWriteProvider value={this.writeRaw}>
           {node}
         </TerminalWriteProvider>

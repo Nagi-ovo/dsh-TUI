@@ -1,11 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { assembleContextFor, installModelSelection, type Agent, type AgentHandle, type AgentStatus, type CreateAgentOptions, type ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type { CommandExecution, CommandRuntime } from '@deepseek-ai/dsh-commands'
-import { isUserInvocable, renderSkillContent, type SkillSummary } from '@deepseek-ai/dsh-skill'
+import { isModelInvocable, isUserInvocable, renderSkillContent, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import type { LlmConfigurableProvider, LlmDiscoveredModel, LlmModelInfo, LlmProviderInfo } from '@deepseek-ai/dsh-llm'
 import {
   createUserMessage,
-  isTokenDelta,
   MessageId,
   ReasoningEffortId,
   type ContentBlock,
@@ -13,8 +12,11 @@ import {
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import { runSideQuestion, wrapSideQuestion } from './sideQuestion.js'
+import { isReservedCredentialRef } from './credentialRefGuard.js'
 import { collectRecentActivity, parseRecapResponse, RECAP_RECENT_CHARS, wrapRecapPrompt, type RecapOutcome } from './recap.js'
 import { SESSION_COLOR_NAMES } from '../cc/sessionColors.js'
+import { fetchBalance, type BalanceResult } from '../deepseekBalance.js'
+import { isPeakHour } from '../deepseekPricing.js'
 /** dsh-llm LlmRuntime as the side-question needs it: one streaming call. */
 type SideQuestionLlm = {
   stream(options: object): AsyncIterable<StreamChunk>
@@ -24,7 +26,7 @@ import { renderContextSections, renderPrompt } from '@deepseek-ai/dsh-system-pro
 import { loadBaselineInstructions } from '@deepseek-ai/dsh-agent-instructions'
 import type { Context } from '@deepseek-ai/cordis'
 import { extname, isAbsolute, join } from 'node:path'
-import { completeCommands, HIDDEN_COMMAND_NAMES, isLocalCommandName, LOCAL_COMMANDS, parseCommandName, type CommandCompletion, type CommandCompletionNode, type LocalCommand } from '../commands.js'
+import { completeCommands, HIDDEN_COMMAND_NAMES, isCommandCompletionToken, isLocalCommandName, LOCAL_COMMANDS, parseCommandName, type CommandCompletion, type CommandCompletionNode, type LocalCommand } from '../commands.js'
 import { clearResumeTarget, forgetSession, readResumeTarget, touchSession, writeResumeTarget } from '../sessionHistory.js'
 import { appendSessionTitle, defaultMaxScanned, deleteSessionLog, ensureLegacySessionEventTypes, readSessionEventsFromFile, readSessionEventsFromLog, sessionsRoots } from './compat/index.js'
 import {
@@ -54,16 +56,17 @@ import { readEffortPref, writeEffortPref } from '../effortPrefs.js'
 import { readModelPref, writeModelPref } from '../modelPrefs.js'
 import { explicitModelRoute, recordedModelRoute, resolveModelRoute, validateModelRoute } from '../modelRoute.js'
 import type { OAuthProviderStatus, OAuthSetupHost, ProviderSetupHost } from './providerWizard.js'
-import { readPresetPref, writePresetPref } from '../presetPrefs.js'
-import { composePreset, resolvePersistedPreset, resolvePersistedRoute, rosterOf, runningPresetOf, serviceForAgent, type AgentPresetInfo } from './presets.js'
+import { migratePresetPref, readPresetPref, writePresetPref } from '../presetPrefs.js'
+import { composePreset, resolvePersistedPreset, resolvePersistedRoute, runningPresetOf, serviceForAgent } from './presets.js'
+import { resolveCompatiblePreset, rosterOf, type AgentPresetInfo } from './preset-resolution.js'
 import { isPresetName, PRESET_NAMES } from '../components/activityFrames.js'
 import { existsSync, statSync, writeFileSync } from 'node:fs'
 import { logForDebugging } from '../utils/debug.js'
 import { homeDir, LEGACY_DATA_DIR } from '../utils/paths.js'
 import { extractMentions } from '../utils/mentions.js'
 import { getLang, LANGS, t } from '../i18n.js'
-import { AUTO_THEME_NAME, THEME_NAMES } from '../theme.js'
-import { listCustomThemes } from '../customTheme.js'
+import { AUTO_THEME_NAME } from '../theme.js'
+import { listThemeCatalog } from '../themeCatalog.js'
 import { modeDisplayName, resolveSessionModes, type SessionModeSpec } from '../sessionModes.js'
 import { normalizeScrollGutter, normalizeStatusBar, normalizeToolBackground, type ScrollGutterMode, type StatusBarConfig, type ToolBackground } from '../tuiDisplayPrefs.js'
 import { SubagentActivityStore, type SubagentState } from './subagents.js'
@@ -81,6 +84,7 @@ import { getHostSettingsSections, getLocalSettingsSectionsHost, type TuiSettings
 import type { SettingsHost } from './settingsEditor.js'
 import { getHostSceneRuntime, type TuiSceneDescriptor, type TuiSceneRuntime } from './scenes.js'
 import { getHostRenderers, type TuiRendererRuntime } from './renderers.js'
+import { getHostThemes, type TuiThemeRuntime } from './themes.js'
 import { getHostMessageObserver, type TuiMessageObserverRuntime } from './message-observer.js'
 import { dispatchTuiDecision, dispatchTuiNotification, normalizeCancelDecision } from './extension-events.js'
 import { installDecisionGuard } from './decision-guard.js'
@@ -176,6 +180,131 @@ function normalizeRewindPromptDecision(
 /** Toast-bound plugin text (veto reasons, handled notices, rewind summaries)
  *  is render-path data too: same sanitization, toast-width cap. */
 const NOTICE_CELLS = 200
+
+const PERMISSION_PRESET_CUSTOM = 'custom'
+const PERMISSION_PRESET_NAME_CELLS = 120
+const PERMISSION_PRESET_DESCRIPTION_CELLS = 400
+
+type PermissionPresetService = {
+  names?: unknown
+  current?: (events: readonly SessionEvent[]) => unknown
+  optionOf?: (name: string) => unknown
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object'
+}
+
+function legacyPermissionPresetOptions(): readonly PermissionPresetOption[] {
+  return [
+    {
+      value: 'read-only',
+      name: t('permission-preset-readonly'),
+      description: t('permission-preset-readonly-desc'),
+    },
+    {
+      value: 'workspace-write',
+      name: t('permission-preset-workspace-write'),
+      description: t('permission-preset-workspace-write-desc'),
+    },
+    {
+      value: 'danger-full-access',
+      name: t('permission-preset-full-access'),
+      description: t('permission-preset-full-access-desc'),
+    },
+  ]
+}
+
+function legacyPermissionPresetSnapshot(sandbox: SessionModeSpec['sandbox']): PermissionPresetSnapshot {
+  const options = legacyPermissionPresetOptions()
+  const currentOption = sandbox === undefined ? undefined : options.find(option => option.value === sandbox)
+  return {
+    availability: 'legacy',
+    options,
+    ...(currentOption === undefined
+      ? {}
+      : { current: { ...currentOption, kind: 'preset' as const } }),
+  }
+}
+
+function unavailablePermissionPresetSnapshot(): PermissionPresetSnapshot {
+  return { availability: 'unavailable', options: [] }
+}
+
+function normalizePermissionPresetOption(value: unknown): PermissionPresetOption | undefined {
+  if (!isRecord(value) || typeof value.value !== 'string' || typeof value.name !== 'string') return undefined
+  const name = cleanRenderText(value.name, PERMISSION_PRESET_NAME_CELLS)
+  if (name === '') return undefined
+  if (value.description !== undefined && typeof value.description !== 'string') return undefined
+  const description = value.description === undefined
+    ? undefined
+    : cleanRenderText(value.description, PERMISSION_PRESET_DESCRIPTION_CELLS)
+  if (value.description !== undefined && description === '') return undefined
+  return {
+    value: value.value,
+    name,
+    ...(description === undefined || description === '' ? {} : { description }),
+  }
+}
+
+function permissionPresetSnapshotFromService(
+  service: unknown,
+  events: readonly SessionEvent[],
+): PermissionPresetSnapshot {
+  if (!isRecord(service)) return unavailablePermissionPresetSnapshot()
+  const runtime = service as PermissionPresetService
+  try {
+    const capturedNames = runtime.names
+    const current = runtime.current
+    const optionOf = runtime.optionOf
+    if (!Array.isArray(capturedNames) || capturedNames.length === 0) return unavailablePermissionPresetSnapshot()
+    if (typeof current !== 'function' || typeof optionOf !== 'function') return unavailablePermissionPresetSnapshot()
+
+    const names = [...capturedNames]
+    const seen = new Set<string>()
+    for (const name of names) {
+      if (typeof name !== 'string' || name.trim() === '' || name === PERMISSION_PRESET_CUSTOM || seen.has(name)) {
+        return unavailablePermissionPresetSnapshot()
+      }
+      seen.add(name)
+    }
+
+    const options: PermissionPresetOption[] = []
+    for (const name of names) {
+      const option = normalizePermissionPresetOption(optionOf(name))
+      if (option === undefined || option.value !== name) return unavailablePermissionPresetSnapshot()
+      options.push({ ...option })
+    }
+
+    const currentValue = current(events)
+    if (typeof currentValue !== 'string' || (currentValue !== PERMISSION_PRESET_CUSTOM && !seen.has(currentValue))) {
+      return unavailablePermissionPresetSnapshot()
+    }
+    const currentOption = normalizePermissionPresetOption(optionOf(currentValue))
+    if (currentOption === undefined || currentOption.value !== currentValue) return unavailablePermissionPresetSnapshot()
+    if (currentValue !== PERMISSION_PRESET_CUSTOM) {
+      const rosterOption = options.find(option => option.value === currentValue)
+      if (
+        rosterOption === undefined
+        || rosterOption.name !== currentOption.name
+        || rosterOption.description !== currentOption.description
+      ) {
+        return unavailablePermissionPresetSnapshot()
+      }
+    }
+
+    return {
+      availability: 'runtime',
+      options,
+      current: {
+        ...currentOption,
+        kind: currentValue === PERMISSION_PRESET_CUSTOM ? 'custom' : 'preset',
+      },
+    }
+  } catch {
+    return unavailablePermissionPresetSnapshot()
+  }
+}
 
 /** `tui/rewind-done` return normalization: the first non-empty STRING is the
  *  summary; anything else is not a decision. */
@@ -341,10 +470,40 @@ export interface ChatRow {
  */
 const SKILL_COMMAND_RETRY_MS = 800
 
+/** One 计费时段（高峰/空闲）的 token 累计。 */
+export interface TokenBucket {
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+}
+
 /** Running token totals across the session's assistant messages. */
 export interface TokenUsage {
   input: number
   output: number
+  /** Prompt-cache hit tokens across the session (priced at the hit rate). */
+  cacheRead: number
+  /** Prompt-cache write tokens across the session (priced with uncached input). */
+  cacheWrite: number
+  /** Peak-hour tokens (billed at peak rates) — each usage lands in a bucket
+   *  by its event time, so a session spanning both windows is priced per
+   *  window instead of all at the current rate. */
+  peak: TokenBucket
+  /** Off-peak-hour tokens (billed at idle rates). */
+  idle: TokenBucket
+}
+
+/** 全零 token 累计（新会话 / 复位用）。 */
+export function emptyTokenUsage(): TokenUsage {
+  return {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    peak: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    idle: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  }
 }
 
 /** In-process working-line snapshot derived from the base session stream. */
@@ -409,11 +568,25 @@ export interface CredentialStatus {
   writable: boolean
 }
 
-/** One entry of the latest todo-list snapshot (mirrors the session domain's
- *  `TodoItem`; declared locally for the same reason as {@link ChannelGoal}). */
+/** One entry of the latest todo-list snapshot (mirrors dsh-tool-todo's
+ *  `TodoItem`; declared locally so the adapter needn't depend on that plugin). */
 export interface TodoPanelItem {
   content: string
   status: 'pending' | 'in_progress' | 'completed'
+}
+
+/** Narrow an optional plugin event without importing its module augmentation. */
+function todoPanelItems(data: unknown): TodoPanelItem[] | undefined {
+  if (typeof data !== 'object' || data === null) return undefined
+  const todos = (data as { todos?: unknown }).todos
+  if (!Array.isArray(todos)) return undefined
+  const valid = todos.every(item => {
+    if (typeof item !== 'object' || item === null) return false
+    const candidate = item as { content?: unknown; status?: unknown }
+    return typeof candidate.content === 'string' &&
+      (candidate.status === 'pending' || candidate.status === 'in_progress' || candidate.status === 'completed')
+  })
+  return valid ? todos as TodoPanelItem[] : undefined
 }
 
 /** One named prompt contribution with its model-visible text. */
@@ -490,6 +663,8 @@ export interface Channel {
    *  the prompt-input border + session label chip accent (cc/sessionColors). */
   readonly sessionColor: string
   readonly agentId: string
+  /** TUI-owned generation that changes on every live Agent rebind. */
+  readonly agentBindingGeneration: number
   /** `dsh-tui.recapOnOpen` (default on): auto-summarize the session tail
    *  into the dim AutoRecapRow when the session opens/resumes. Read live
    *  (settings service), so a `/settings` change applies on the next
@@ -521,6 +696,10 @@ export interface Channel {
   readonly gitBranch: string | undefined
   /** True between turn/start and turn/end — drives the working spinner. */
   readonly working: boolean
+  /** True while a user-requested abort (Ctrl+C/Esc interrupt) has not yet
+   *  converged — no turn/start or turn/end has retired the aborted turn.
+   *  Chat uses it so a repeated Ctrl+C during a stuck abort force-exits. */
+  readonly cancelPending: boolean
   /** Which phase the spinner should present while working. */
   readonly spinnerMode: SpinnerMode
   /** Chars streamed as text this turn (feeds the spinner token counter). */
@@ -564,9 +743,16 @@ export interface Channel {
    *  `dsh-tui.scrollGutter`: turn timeline / proportional scrollbar /
    *  nothing). */
   readonly scrollGutter: ScrollGutterMode
+  /** Terminal-card header folding (settings `dsh-tui.foldTerminalCommand`):
+   *  collapse a multi-line command title to its first line + count hint. */
+  readonly foldTerminalCommand: boolean
   /** Whether the session-name chip shows on the prompt top border's right
    *  side (settings `dsh-tui.promptSessionLabel`; off by default). */
   readonly promptSessionLabel: boolean
+  /** Whether the fullscreen draft editor is enabled (settings
+   *  `dsh-tui.expandEditor`; on by default) — gates the ⛶ affordance and
+   *  the expandEditor shortcut. */
+  readonly expandEditor: boolean
   /** Live status-footer visibility and compactness preferences. */
   readonly statusBar: Readonly<StatusBarConfig>
   /** Whether the header's pixel whale art shows (settings `dsh-tui.whale`). */
@@ -668,7 +854,9 @@ export interface Channel {
   steer(text: string): void
   /** Pull a pending message back out of the inbox (Alt+Up) for re-editing. */
   removePending(id: string): boolean
-  /** Abort the in-flight turn (`Ctrl+C` while working). */
+  /** Abort the in-flight turn (`Ctrl+C` while working). While `cancelPending`
+   *  stays true the abort has not converged; Chat force-exits on the next
+   *  Ctrl+C press in that window. */
   cancel(): void
   /** Abort the in-flight turn and process `texts` right away (Esc/Ctrl+Enter
    *  with queued input): each text is re-queued as a followup once the abort
@@ -740,6 +928,8 @@ export interface Channel {
   readonly modeIndex: number
   /** Shift+Tab: advance to the next configured session mode. */
   cycleMode(): Promise<void>
+  /** Read the official permission preset roster and current identity. */
+  permissionPresets(): PermissionPresetSnapshot
   /** The preset the CURRENT session runs under (issue #8), resolved from its
    *  log at create/resume time; undefined when no roster is mounted. */
   readonly agentPreset: string | undefined
@@ -779,6 +969,11 @@ export interface Channel {
   listSkills(): Promise<readonly SkillInfo[] | undefined>
   /** Safe credential metadata for `/login`; undefined without the service. */
   describeCredential(ref: string): Promise<CredentialStatus | undefined>
+  /** DeepSeek official account balance for `/balance`: resolves
+   *  `DEEPSEEK_API_KEY` through the credentials seam (env fallback) and
+   *  queries the official balance endpoint. The key is used only for the
+   *  request header — never logged, printed or persisted. */
+  balanceInfo(): Promise<BalanceResult>
   /** Runtime capabilities for the `/provider` wizard, over the settings /
    *  credentials / llm seams; undefined when the composition lacks them
    *  (bare cordis.yml start without the dsh-base services). */
@@ -882,6 +1077,31 @@ export interface PresetOption {
   isDefault: boolean
 }
 
+export type PermissionPresetAvailability = 'runtime' | 'legacy' | 'unavailable'
+
+export interface PermissionPresetOption {
+  readonly value: string
+  readonly name: string
+  readonly description?: string
+}
+
+export interface PermissionPresetCurrent {
+  readonly value: string
+  readonly name: string
+  readonly description?: string
+  readonly kind: 'preset' | 'custom'
+}
+
+/**
+ * Adapter-owned permission roster snapshot. `options` never contains the
+ * official `custom` sentinel; it is represented only by `current`.
+ */
+export interface PermissionPresetSnapshot {
+  readonly availability: PermissionPresetAvailability
+  readonly options: readonly PermissionPresetOption[]
+  readonly current?: PermissionPresetCurrent
+}
+
 /** @internal */
 /** One user message submitted while the model was working, not yet claimed
  *  by a turn. `steer` lands at the next step boundary of the running turn;
@@ -913,6 +1133,8 @@ export interface ChannelState {
   sessionColor: string
   autoRecapOnOpen: boolean
   agentId: string
+  /** TUI-owned generation that changes on every live Agent rebind. */
+  agentBindingGeneration: number
   model: string
   provider: string
   tokens: TokenUsage
@@ -920,6 +1142,8 @@ export interface ChannelState {
   displayCwd: string
   gitBranch: string | undefined
   working: boolean
+  /** Whether a requested abort is still converging (see the public Channel type). */
+  cancelPending: boolean
   spinnerMode: SpinnerMode
   responseChars: number
   activeToolCount: number
@@ -958,8 +1182,12 @@ export interface ChannelState {
   toolBackground: ToolBackground
   /** Transcript gutter mode (see the public Channel type). */
   scrollGutter: ScrollGutterMode
+  /** Terminal-card header folding (see the public Channel type). */
+  foldTerminalCommand: boolean
   /** Session-name chip on the prompt border (see the public Channel type). */
   promptSessionLabel: boolean
+  /** Fullscreen draft editor gate (see the public Channel type). */
+  expandEditor: boolean
   /** Status-footer preferences (see the public Channel type). */
   statusBar: StatusBarConfig
   /** Apply a diff-layout change (see the public Channel type). */
@@ -970,8 +1198,12 @@ export interface ChannelState {
   setToolBackground(background: ToolBackground): void
   /** Apply a transcript gutter mode change. */
   setScrollGutter(mode: ScrollGutterMode): void
+  /** Apply a terminal-card header folding change. */
+  setFoldTerminalCommand(enabled: boolean): void
   /** Apply a prompt session-name chip change. */
   setPromptSessionLabel(enabled: boolean): void
+  /** Apply a fullscreen-editor gate change. */
+  setExpandEditor(enabled: boolean): void
   /** Apply status-footer preference changes. */
   setStatusBar(config: Partial<StatusBarConfig>): void
   /** Whale header art switch (see the public Channel type). */
@@ -1073,6 +1305,8 @@ export interface ChannelState {
   modeIndex: number
   /** Shift+Tab session-mode advance (see the public Channel type). */
   cycleMode(): Promise<void>
+  /** Read the official permission preset roster and current identity. */
+  permissionPresets(): PermissionPresetSnapshot
   /** The preset the current session runs under (see the public Channel type). */
   agentPreset: string | undefined
   /** The roster's presets for the `/preset` picker (see the public Channel type). */
@@ -1092,6 +1326,8 @@ export interface ChannelState {
   listSkills(): Promise<readonly SkillInfo[] | undefined>
   /** Safe credential metadata for `/login` (see the public Channel type). */
   describeCredential(ref: string): Promise<CredentialStatus | undefined>
+  /** DeepSeek official balance for `/balance` (see the public Channel type). */
+  balanceInfo(): Promise<BalanceResult>
   /** `/provider` wizard capabilities (see the public Channel type). */
   providerSetup(): ProviderSetupHost | undefined
   /** OAuth sign-in states (see the public Channel type). */
@@ -1496,9 +1732,15 @@ export function createChannel(
     toolBackground?: ToolBackground
     /** Transcript gutter mode; default `timeline` (settings `dsh-tui.scrollGutter`). */
     scrollGutter?: ScrollGutterMode
+    /** Terminal-card header folding; default off (settings
+     *  `dsh-tui.foldTerminalCommand`). */
+    foldTerminalCommand?: boolean
     /** Session-name chip on the prompt top border; default off (settings
      *  `dsh-tui.promptSessionLabel`). */
     promptSessionLabel?: boolean
+    /** Fullscreen draft editor entry points; default on (settings
+     *  `dsh-tui.expandEditor`). */
+    expandEditor?: boolean
     /** Status-footer field visibility and compactness. */
     statusBar?: Partial<StatusBarConfig>
     /** Show the header's pixel whale art; default on. */
@@ -1534,6 +1776,7 @@ export function createChannel(
 ): ChannelState {
   let agent = initialAgent
   let currentHandle: AgentHandle | undefined = options.handle
+  const themeHost = getHostThemes(ctx.get('tuiThemes') as TuiThemeRuntime | undefined)
   const subagentControl: SubagentControl = {
     interrupt(agentId) {
       const child = subagentStore.get(agentId)
@@ -1692,6 +1935,25 @@ export function createChannel(
     subagentStreamDirty = false
     state.subagents = subagentStore.snapshot()
     syncSubagentRows(state.subagents)
+  }
+  /** Drop the subagent row map (transcript wipe): the next event for a still
+   *  live subagent re-creates its card as a fresh row instead of feeding a
+   *  row object no transcript holds (update-only orphan). */
+  const dropSubagentRows = (): void => {
+    subagentStreamDirty = false
+    subagentRowsByAgentId.clear()
+  }
+  /** Full subagent reset for a session swap: the row map, the queued task
+   *  descriptions and the store itself are all scoped to the OLD agent's
+   *  session. Leaked into the adopted one, they would keep dead subagents in
+   *  the dashboard snapshot until new events overwrite it, grow the row map
+   *  without bound across swaps, and hand a stale queued description to the
+   *  new session's first card. */
+  const resetSubagentProjection = (): void => {
+    dropSubagentRows()
+    pendingTaskDescriptions.length = 0
+    subagentStore.reset()
+    state.subagents = []
   }
   // foldRows incremental cursor (see foldRows): rows only append past the
   // fold line, so each pass touches only newly-eligible rows.
@@ -1953,6 +2215,7 @@ export function createChannel(
     toolCards.clear()
     nextRowId = 0
     state.rows.length = 0
+    resetSubagentProjection()
     // Goal/todo/title are session-scoped; the replay re-derives them for
     // the session being entered (or leaves them empty).
     state.todos = []
@@ -1964,11 +2227,12 @@ export function createChannel(
     state.goal = undefined
     state.sessionTitle = ''
     state.sessionColor = ''
-    state.tokens = { input: 0, output: 0 }
+    state.tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, peak: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, idle: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }
     state.responseChars = 0
     state.activeToolCount = 0
     state.lastUserText = ''
     state.working = false
+    state.cancelPending = false
     state.spinnerMode = 'requesting'
     state.status = handle.agent.status
     state.agentId = handle.agent.id
@@ -2004,6 +2268,11 @@ export function createChannel(
     touchSession(childId)
     state.emit()
     void oldHandle?.dispose().catch(() => {})
+    // The staged-image map is session-scoped (the same contract the
+    // resumeTo/newSession tails enforce): tokens typed against the rewound
+    // conversation must not ride into the fork's next send, and the epoch
+    // bump fences saves still in flight for the old session.
+    clearStagedImages()
     return sourceSessionId
   }
   /** Monotonic token: only the latest `interruptAndDeliver` re-queues, so a
@@ -2277,7 +2546,7 @@ export function createChannel(
       }
       // `undefined` = not registered; a handler error surfaces as its
       // message so the user sees why the command failed.
-      return execution?.result.text ?? ''
+      return execution === undefined ? undefined : execution.result.text ?? ''
     } catch (error) {
       return error instanceof Error ? error.message : String(error)
     }
@@ -2503,6 +2772,42 @@ export function createChannel(
     }).catch(() => {})
   }
 
+  // --- Manual-compaction lifecycle ---------------------------------------
+  // The in-flight /compact transaction: its abort hook plus the settled
+  // promise. Every path that replaces `agent` (rewind / rewind-node /
+  // resume / new / model switch) must cancel and await it BEFORE snapshot-
+  // ting the session. Without this, a slow summarizer keeps running against
+  // the OLD session across the switch and can commit its replacement
+  // checkpoint AFTER the fork snapshot — silently swapping the history the
+  // user believed intact ("compaction failed → /model → context lost").
+  let manualCompaction:
+    | { controller: AbortController; settled: Promise<void> }
+    | undefined
+  /** Compactions cancelled by settleManualCompaction: their rejection is expected. */
+  const cancelledCompactions = new WeakSet<AbortController>()
+
+  /**
+   * Cancel an in-flight manual compaction and wait for it to settle.
+   * Aborting tears the summarizer stream down; dsh-compaction then closes
+   * the transaction with an error end marker and rejects compactNow with
+   * the `cancelled` class — no checkpoint is committed, the surface stays
+   * whole. The settle race is capped so a stuck stream can never wedge the
+   * session switch itself.
+   */
+  const settleManualCompaction = async (): Promise<void> => {
+    const active = manualCompaction
+    if (active === undefined) return
+    manualCompaction = undefined
+    cancelledCompactions.add(active.controller)
+    active.controller.abort(new Error('session switch'))
+    state.notify(t('compact-cancelled-switch'), { color: 'warning', timeoutMs: 4000 })
+    await Promise.race([
+      active.settled,
+      new Promise<void>(resolve => { setTimeout(resolve, 3000) }),
+    ])
+  }
+
+  let agentBindingGeneration = 0
   const state: ChannelState = {
     effortLevels: undefined,
     version: 0,
@@ -2522,13 +2827,15 @@ export function createChannel(
       return (ns?.value as Record<string, unknown> | undefined)?.recapOnOpen !== false
     },
     agentId: agent.id,
+    agentBindingGeneration: 0,
     model: options.model,
     provider: options.provider,
-    tokens: { input: 0, output: 0 },
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, peak: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, idle: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
     cwd: options.cwd,
     displayCwd: workspaceService.describe(options.cwd).description ?? options.cwd,
     gitBranch: undefined,
     working: false,
+    cancelPending: false,
     spinnerMode: 'requesting',
     responseChars: 0,
     activeToolCount: 0,
@@ -2554,7 +2861,9 @@ export function createChannel(
     thinkingFold: options.thinkingFold ?? 'preview',
     toolBackground: normalizeToolBackground(options.toolBackground),
     scrollGutter: normalizeScrollGutter(options.scrollGutter),
+    foldTerminalCommand: options.foldTerminalCommand === true,
     promptSessionLabel: options.promptSessionLabel === true,
+    expandEditor: options.expandEditor !== false,
     statusBar: normalizeStatusBar(options.statusBar),
     whale: options.whale !== false,
     minimal: options.minimal === true,
@@ -2594,21 +2903,34 @@ export function createChannel(
           ]
         }
         if (path.length === 1 && path[0] === 'theme') {
+          const themeEntries = listThemeCatalog(themeHost)
           return [
             { name: 'status', description: 'Show the current theme', descriptionKey: 'sugg-status-desc' },
             { name: AUTO_THEME_NAME, description: 'Follow the terminal background', descriptionKey: 'sugg-theme-auto-desc' },
-            ...THEME_NAMES.map((name) => ({
-              name,
-              description: `Built-in theme ${name}`,
-              descriptionKey: 'sugg-theme-builtin-desc',
-            })),
-            ...listCustomThemes()
-              .filter((spec) => spec.name !== AUTO_THEME_NAME)
-              .map((spec) => ({
-                name: spec.name,
-                description: `User theme (${spec.base} base)`,
-                descriptionKey: 'sugg-theme-user-desc',
-              })),
+            ...themeEntries
+              .filter((entry) => entry.name !== AUTO_THEME_NAME)
+              .map((entry) => {
+                const base = entry.base ?? 'dark'
+                if (entry.source === 'builtin') {
+                  return {
+                    name: entry.name,
+                    description: `Built-in theme ${entry.name}`,
+                    descriptionKey: 'sugg-theme-builtin-desc',
+                  }
+                }
+                if (entry.source === 'runtime') {
+                  return {
+                    name: entry.name,
+                    description: `Plugin theme (${base} base)`,
+                    descriptionKey: 'sugg-theme-plugin-desc',
+                  }
+                }
+                return {
+                  name: entry.name,
+                  description: `User theme (${base} base)`,
+                  descriptionKey: 'sugg-theme-user-desc',
+                }
+              }),
           ]
         }
         if (path.length === 1 && path[0] === 'color') {
@@ -2683,13 +3005,23 @@ export function createChannel(
           ]
         }
         if (path.length === 1 && path[0] === 'permission') {
-          // Sandbox-preset vocabulary of the `/permission` picker — Tab
-          // completes it for keyboard users, Enter still dispatches.
-          return [
-            { name: 'read-only', description: 'Read-only session: no file writes, no commands', descriptionKey: 'permission-preset-readonly-desc' },
-            { name: 'workspace-write', description: 'Read/write inside the workspace; writes need a prior read', descriptionKey: 'permission-preset-workspace-write-desc' },
-            { name: 'danger-full-access', description: 'Unrestricted access, no approvals', descriptionKey: 'permission-preset-full-access-desc' },
-          ]
+          const snapshot = state.permissionPresets()
+          return snapshot.options
+            .filter(option => isCommandCompletionToken(option.value))
+            .map(option => ({
+              name: option.value,
+              description: option.description ?? option.name,
+              ...(option.value === 'read-only'
+                ? { descriptionKey: 'permission-preset-readonly-desc' }
+                : option.value === 'workspace-write'
+                  ? { descriptionKey: 'permission-preset-workspace-write-desc' }
+                  : option.value === 'danger-full-access'
+                    ? { descriptionKey: 'permission-preset-full-access-desc' }
+                    : {}),
+              ...(snapshot.current?.kind === 'preset' && snapshot.current.value === option.value
+                ? { tag: 'current' }
+                : {}),
+            }))
         }
         if (path.length === 1 && path[0] === 'plan') {
           return [
@@ -2829,9 +3161,11 @@ export function createChannel(
       // Keep the staged queue: an interrupt aborts the running turn but the
       // queued/steered messages are delivered as the next turn (web parity).
       // Cancellation converges asynchronously; ignore a repeated Esc/Ctrl+C
-      // until the aborted turn has produced its terminal event.
+      // until the aborted turn has produced its terminal event. `cancelPending`
+      // mirrors that window for the UI, where a repeated press force-exits.
       if (cancelInFlight) return
       cancelInFlight = true
+      state.cancelPending = true
       agent.cancel({ kind: 'user' }, { keepInbox: true })
     },
     interruptAndDeliver(texts: readonly string[]): number {
@@ -2849,6 +3183,7 @@ export function createChannel(
         cancelInFlight = true
         agent.cancel({ kind: 'user' })
       }
+      state.cancelPending = true
       const token = ++interruptSeq
       const deliver = (): void => {
         // A second interrupt while the abort is still settling must not
@@ -2927,6 +3262,10 @@ export function createChannel(
           return null
         }
       }
+      // An in-flight manual compaction must not straddle the fork: cancel it
+      // and wait, or its checkpoint could commit right after the seed snapshot
+      // below and quietly replace history the rewind was meant to preserve.
+      await settleManualCompaction()
       const childId = SessionId(randomUUID())
       // DSH event order is `turn/start → user/message → … → turn/end`, so a
       // message's own seq always sits inside its turn — forking there would
@@ -3445,6 +3784,10 @@ export function createChannel(
         state.notify(t('rewind-unavailable'), { color: 'error' })
         return null
       }
+      // An in-flight manual compaction must not straddle the snapshot below
+      // (live branch) nor keep summarizing the current session while the
+      // rewind targets another — cancel and await it first.
+      await settleManualCompaction()
       // Pin the entry-time session: the awaits below (log load, preset
       // compose, agent create) are windows in which a queued switch
       // (/new, /resume, /model) can swap `agent` — the mutation queue only
@@ -3632,6 +3975,10 @@ export function createChannel(
         state.notify(t('fork-while-working'), { color: 'warning' })
         return false
       }
+      // An in-flight manual compaction must not straddle the fork snapshot:
+      // cancel and await it, or its checkpoint could commit right after the
+      // seed copy below and quietly replace history the fork preserved.
+      await settleManualCompaction()
       const source = agent.session
       const childId = SessionId(randomUUID())
       // No boundary: the whole (turn-closed) log. Slice via sessions.fork for
@@ -3736,6 +4083,15 @@ export function createChannel(
       // target — a veto leaves the live session and its transcript
       // untouched.
       if (await sessionSwitchVetoed('resume', sessionId)) return { ok: false, reason: 'cancelled' }
+      // The live session's in-flight manual compaction must not keep running
+      // (and commit its checkpoint) once we leave it for the target — cancel
+      // and await it before any target read.
+      await settleManualCompaction()
+      // Identity pin for the rival-swap guard below: everything between here
+      // and the adoption can await (veto, preset, route, agents.resume), and
+      // an interrupt-queued /new or a second /resume may commit a different
+      // swap in that window.
+      const entrySession = agent.session
       let handle: AgentHandle
       // Compat boundary: register vouched-for legacy event types (e.g.
       // activity/status from pre-#143 logs) in every reachable dsh-session
@@ -3791,6 +4147,17 @@ export function createChannel(
           { color: 'warning', timeoutMs: 8000 },
         )
       }
+      // Rival-swap guard (rewindToNode's entrySession check, applied to the
+      // resume path): the awaits above can straddle another session swap
+      // committing first, and adopting now would stomp the newer session's
+      // live transcript with this target's replay. Free the just-created
+      // handle and bail — the live session stays exactly as the rival left
+      // it, and the persisted target simply stays in /resume.
+      if (agent.session !== entrySession) {
+        void handle.dispose().catch(() => {})
+        state.notify(t('resume-session-changed'), { color: 'error' })
+        return { ok: false, reason: 'failed', error: 'live session changed during resume' }
+      }
       // Replay the persisted history into a fresh transcript (same reset as
       // rewindTo, plus the context window which the replay re-derives).
       streaming = undefined
@@ -3802,6 +4169,7 @@ export function createChannel(
       toolCards.clear()
       nextRowId = 0
       state.rows.length = 0
+      resetSubagentProjection()
       // Goal/todo/title are session-scoped; the replay re-derives them for
       // the session being entered (or leaves them empty).
       state.todos = []
@@ -3813,11 +4181,12 @@ export function createChannel(
       state.goal = undefined
       state.sessionTitle = ''
       state.sessionColor = ''
-      state.tokens = { input: 0, output: 0 }
+      state.tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, peak: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, idle: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }
       state.responseChars = 0
       state.activeToolCount = 0
       state.lastUserText = ''
       state.working = false
+      state.cancelPending = false
       state.spinnerMode = 'requesting'
       state.status = handle.agent.status
       state.agentId = handle.agent.id
@@ -3904,12 +4273,23 @@ export function createChannel(
       // Plugin veto point (tui/session-switch): no side effects have
       // happened yet — the session id below is not even allocated.
       if (await sessionSwitchVetoed('new')) return false
+      // Leaving the live session: its in-flight manual compaction must not
+      // keep summarizing (and later commit a checkpoint the user believes
+      // cancelled) — cancel and await it first.
+      await settleManualCompaction()
       const sessionId = SessionId(randomUUID())
       let handle: AgentHandle
       // A fresh session composes the caller's DEFAULT preset: the cordis.yml
       // `preset` key wins over the persisted `/preset` choice, which wins
       // over the roster default (same precedence as activityFrames).
-      const newComposed = await composePreset(ctx, options.configuredPreset ?? readPresetPref())
+      const presetPref = options.configuredPreset === undefined ? readPresetPref() : undefined
+      const newComposed = await composePreset(ctx, options.configuredPreset ?? presetPref)
+      if (!migratePresetPref(presetPref, newComposed.agentPreset)) {
+        state.notify(
+          t('preset-switched-pref-failed', { id: newComposed.agentPreset ?? presetPref ?? 'unknown' }),
+          { color: 'warning' },
+        )
+      }
       // Same precedence for the route (issues #14/#30/#67): the pair resolves
       // atomically — a complete cordis.yml route wins whole, else the
       // persisted `/model` choice (a switch earlier in this run just wrote
@@ -3981,6 +4361,7 @@ export function createChannel(
       lastTextDelta.clear()
       nextRowId = 0
       state.rows.length = 0
+      resetSubagentProjection()
       // Goal/todo/title are session-scoped; the replay re-derives them for
       // the session being entered (or leaves them empty).
       state.todos = []
@@ -3992,11 +4373,12 @@ export function createChannel(
       state.goal = undefined
       state.sessionTitle = ''
       state.sessionColor = ''
-      state.tokens = { input: 0, output: 0 }
+      state.tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, peak: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, idle: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }
       state.responseChars = 0
       state.activeToolCount = 0
       state.lastUserText = ''
       state.working = false
+      state.cancelPending = false
       state.spinnerMode = 'requesting'
       state.status = handle.agent.status
       state.agentId = handle.agent.id
@@ -4120,6 +4502,11 @@ export function createChannel(
       }
       let seed: readonly SessionEvent[]
       try {
+        // An in-flight manual compaction must not straddle the fork: cancel
+        // it first, or its checkpoint can commit right after this snapshot —
+        // the model-switched child would start from the summary alone while
+        // the user believes the full history carried over ("context lost").
+        await settleManualCompaction()
         // No boundary = fork the whole log (continue the conversation).
         seed = sessions.fork(agent.session).events
       } catch (error) {
@@ -4169,6 +4556,7 @@ export function createChannel(
       toolCards.clear()
       nextRowId = 0
       state.rows.length = 0
+      resetSubagentProjection()
       // Goal/todo/title are session-scoped; the replay re-derives them for
       // the session being entered (or leaves them empty).
       state.todos = []
@@ -4180,11 +4568,12 @@ export function createChannel(
       state.goal = undefined
       state.sessionTitle = ''
       state.sessionColor = ''
-      state.tokens = { input: 0, output: 0 }
+      state.tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, peak: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, idle: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }
       state.responseChars = 0
       state.activeToolCount = 0
       state.lastUserText = ''
       state.working = false
+      state.cancelPending = false
       state.spinnerMode = 'requesting'
       state.status = handle.agent.status
       state.agentId = handle.agent.id
@@ -4222,7 +4611,7 @@ export function createChannel(
       currentHandle = handle
       bindAgent()
       // Model-switch quip rides the fresh tracker (pi parity).
-      activityTracker.onModelSwitch(model)
+      updateWorkingActivity('model switch', () => activityTracker.onModelSwitch(model))
       refreshCommandList()
       void refreshLoadedContext()
       void refreshSkillCommands()
@@ -4230,6 +4619,9 @@ export function createChannel(
       touchSession(childId)
       state.emit()
       void oldHandle?.dispose().catch(() => {})
+      // Staged image tokens were typed against the pre-switch conversation;
+      // resumeTo/newSession already drop theirs on the swap — same contract.
+      clearStagedImages()
       // Persist the choice so the next boot and `/new` start on it (same
       // contract as /preset and /effort; issues #14/#30). A failed
       // write keeps the live switch but warns it will not survive a restart.
@@ -4249,6 +4641,11 @@ export function createChannel(
       streaming = undefined
       reasoning = undefined
       toolCards.clear()
+      // In-flight subagents keep streaming after the wipe; clearing the row
+      // map lets their next event re-create the card as a fresh row instead
+      // of feeding a row object no transcript holds (the store keeps live
+      // tracking for the dashboard — same session, still running).
+      dropSubagentRows()
       state.activeToolCount = 0
       state.responseChars = 0
       state.rows.push({
@@ -4308,9 +4705,19 @@ export function createChannel(
       state.scrollGutter = normalized
       state.emit()
     },
+    setFoldTerminalCommand(enabled) {
+      if (enabled === state.foldTerminalCommand) return
+      state.foldTerminalCommand = enabled
+      state.emit()
+    },
     setPromptSessionLabel(enabled) {
       if (enabled === state.promptSessionLabel) return
       state.promptSessionLabel = enabled
+      state.emit()
+    },
+    setExpandEditor(enabled) {
+      if (enabled === state.expandEditor) return
+      state.expandEditor = enabled
       state.emit()
     },
     setStatusBar(config) {
@@ -4353,6 +4760,16 @@ export function createChannel(
       state.notify(t('activity-indicator-switched', { name }))
       return true
     },
+    permissionPresets() {
+      let service: unknown
+      try {
+        service = ctx.get('permissionPresets')
+      } catch {
+        return unavailablePermissionPresetSnapshot()
+      }
+      if (service === undefined) return legacyPermissionPresetSnapshot(state.mode.sandbox)
+      return permissionPresetSnapshotFromService(service, agent.session.events)
+    },
     async listPresets() {
       const presets = rosterOf(ctx)
       if (presets === undefined) return []
@@ -4381,7 +4798,7 @@ export function createChannel(
       }
       let target: AgentPresetInfo
       try {
-        target = await presets.resolve(presetId)
+        target = await resolveCompatiblePreset(presets, presetId)
       } catch (error) {
         state.notify(
           t('preset-not-found', { id: presetId, err: error instanceof Error ? error.message : String(error) }),
@@ -4390,10 +4807,14 @@ export function createChannel(
         return false
       }
       if (target.broken !== undefined) {
-        state.notify(t('preset-load-failed', { id: presetId, broken: target.broken }), { color: 'error', timeoutMs: 8000 })
+        state.notify(t('preset-load-failed', { id: target.id, broken: target.broken }), { color: 'error', timeoutMs: 8000 })
         return false
       }
       if (target.id === state.agentPreset) {
+        if (!migratePresetPref(presetId, target.id)) {
+          state.notify(t('preset-switched-pref-failed', { id: target.id }), { color: 'warning' })
+          return true
+        }
         state.notify(t('preset-already-current', { id: target.id }), { color: 'success' })
         return true
       }
@@ -4488,6 +4909,25 @@ export function createChannel(
       if (!credentials) return undefined
       return credentials.describe(ref)
     },
+    async balanceInfo() {
+      // Same key resolution order as the community balance plugins: the
+      // harness credentials seam first, the process environment as fallback
+      // (the /doctor check reads the env directly). The value rides only in
+      // the Authorization header — never logged, printed or persisted.
+      const credentials = ctx.get('credentials') as
+        | { resolve(ref: string): Promise<{ value: string } | undefined> }
+        | undefined
+      let apiKey = ''
+      if (credentials !== undefined) {
+        try {
+          apiKey = (await credentials.resolve('DEEPSEEK_API_KEY'))?.value ?? ''
+        } catch {
+          apiKey = ''
+        }
+      }
+      if (apiKey === '') apiKey = process.env.DEEPSEEK_API_KEY ?? ''
+      return fetchBalance(apiKey)
+    },
     settingsHost(): SettingsHost | undefined {
       if (settingsHostResolved) return settingsHostCache
       settingsHostResolved = true
@@ -4544,6 +4984,13 @@ export function createChannel(
         },
         async writeCredential(ref, value) {
           if (!credentials) throw new Error('credentials service unavailable')
+          // Second layer of the secret-ref reservation guard: the
+          // registration layer already rejects plugin sections with
+          // host-owned refs, but this seam must not trust it — a stale
+          // section (registered before the guard) or a direct call must not
+          // reach the shared credentials. The host's own main-credential
+          // writes go through providerSetup().writeCredential instead.
+          if (isReservedCredentialRef(ref)) throw new Error(t('settings-secret-ref-reserved', { ref }))
           await credentials.set(ref, value)
         },
       }
@@ -4887,21 +5334,43 @@ export function createChannel(
           state.notify(t('compact-while-working'), { color: 'warning' })
           return
         }
-        const signal = new AbortController().signal
+        const controller = new AbortController()
         state.notify(t('compact-working'))
-        void compactService
-          .compactNow(agent, signal)
-          .then((result) => {
+        // Register the in-flight transaction so any agent-replacing path
+        // (rewind/resume/new/model switch) can cancel it before snapshotting
+        // the session — see settleManualCompaction. `settled` never rejects:
+        // every branch lands in a notification.
+        const settled = (async () => {
+          try {
+            const result = await compactService.compactNow(agent, controller.signal)
             state.notify(result ? t('compact-done') : t('compact-nothing'))
             // Compaction quip rides the next thinking rotation (pi parity).
-            if (result) activityTracker.onCompact('done')
-          })
-          .catch((error: unknown) => {
+            if (result) updateWorkingActivity('compaction', () => activityTracker.onCompact('done'))
+          } catch (error: unknown) {
+            // ManualCompactionError('persistence'): the replacement checkpoint
+            // is ALREADY committed — only the durability flush failed. The
+            // surface is now the summary, so a plain "failed" toast here sent
+            // users to /model expecting full history and finding only the
+            // summary ("context lost"). Distinguish it, structurally — the
+            // TUI must not import the error class across the adapter seam.
+            if ((error as { code?: unknown }).code === 'persistence') {
+              state.notify(t('compact-flush-failed'), { color: 'warning', timeoutMs: 12000 })
+              return
+            }
+            // A switch-initiated abort rejects compactNow with the abort reason;
+            // the cancellation was already toasted above — a second generic
+            // "failed" toast for the same, expected rejection would mislead.
+            if (cancelledCompactions.has(controller)) return
             state.notify(
               t('compact-failed', { err: error instanceof Error ? error.message : String(error) }),
               { color: 'error', timeoutMs: 8000 },
             )
-          })
+          }
+        })()
+        manualCompaction = { controller, settled }
+        void settled.finally(() => {
+          if (manualCompaction?.controller === controller) manualCompaction = undefined
+        })
       })().catch((error: unknown) => {
         // Sync throws from compactNow (e.g. runMaintenance rejecting a
         // non-idle agent right after /resume) reject this IIFE itself;
@@ -5066,7 +5535,7 @@ export function createChannel(
       }
       // Session store candidates mirror the compat layer (sessionsRoots):
       // the active root depends on the composition (bare cordis.yml →
-      // legacy ~/.dsh-tui, profile → $DSH_HOME/sessions), so list every
+      // legacy ~/.dsh-tui/sessions, profile → $DSH_HOME/sessions), so list every
       // candidate with its own state instead of hardcoding one.
       for (const dir of sessionsRoots()) {
         lines.push(`${t('doctor-storage', { dir, state: existsSync(dir) ? '✓' : t('doctor-storage-uninit') })}`)
@@ -5187,20 +5656,20 @@ export function createChannel(
         ...(renderedInstructions?.truncated ?? []).map(file => file.displayPath),
       ])
       files.push(...[...instructionPaths].map(displayPath => ({ displayPath })))
-      // The skills registry is host-plane but scope-layered: preset rows
-      // (skill-filesystem) register into the preset's layer, so the catalog
-      // must be read through the agent's scope chain (serviceForAgent falls
-      // back to the host context when no roster is mounted).
-      const skillsService = serviceForAgent<{
-        list(options?: unknown): Promise<readonly { name: string; description: string }[]>
-      }>(ctx, target, 'skills')
-      if (skillsService !== undefined) {
-        const catalog = await skillsService.list({})
+      // A registry entry reaches the model only through dsh-tool-skill's
+      // catalog, which is gated on that exact tool being visible to the agent.
+      const skillsRegistry = tools.some(tool => tool.name === 'skill')
+        ? skillRegistryFor(target)
+        : undefined
+      if (skillsRegistry !== undefined) {
+        const observation = await skillsRegistry.snapshot(skillViewOptions(target))
         if (target !== agent) return
-        skills.push(...catalog.map(skill => ({
-          name: skill.name,
-          description: skill.description,
-        })))
+        if (observation.complete) {
+          skills.push(...observation.skills.filter(isModelInvocable).map(skill => ({
+            name: skill.name,
+            description: skill.description,
+          })))
+        }
       }
     } catch (error) {
       ctx.logger.warn('loaded-context snapshot failed: %o', error)
@@ -5214,7 +5683,7 @@ export function createChannel(
    * Rebuild the merged slash-command list: built-in locals, then registry
    * commands (plan/goal/…), then user-invocable skills from the DSH skill
    * registry (issue #86 — filesystem-discovered skills must appear in the
-   * `/` menu and Tab completion, like /audit and /review). Skill entries
+   * `/` menu and Tab completion, like /my-skill). Skill entries
    * are completion-only: dispatch falls through to the model as plain text,
    * where dsh-tool-skill's pre-step hook injects the skill body — the same
    * path a hand-typed `/skill-name` takes. Registry and skill reads are
@@ -6108,6 +6577,23 @@ ${output}
           state.tokens.input += usage.inputTokens ?? 0
           // oxlint-disable-next-line typescript/no-unnecessary-condition -- durable replay data may lack tokens
           state.tokens.output += usage.outputTokens ?? 0
+          // Cache split totals feed the session cost estimate (hit-priced
+          // input vs. uncached input) — the durable replay may lack them.
+          state.tokens.cacheRead += usage.cacheReadTokens ?? 0
+          state.tokens.cacheWrite += usage.cacheWriteTokens ?? 0
+          // Peak/idle bucketing by the request's own time (the durable replay
+          // replays historical events, so a resumed session prices each
+          // request at the rate window it actually ran in — the session cost
+          // estimate never prices the whole session at the current window).
+          {
+            const bucket = isPeakHour(new Date(event.time))
+              ? state.tokens.peak
+              : state.tokens.idle
+            bucket.input += usage.inputTokens ?? 0
+            bucket.output += usage.outputTokens ?? 0
+            bucket.cacheRead += usage.cacheReadTokens ?? 0
+            bucket.cacheWrite += usage.cacheWriteTokens ?? 0
+          }
           // The most recent request's usage describes the CURRENT context:
           // input (uncached) + cache hits all occupy the window. Cache hits
           // also drive the status-line `cache N` readout.
@@ -6255,6 +6741,7 @@ ${output}
       }
       case 'turn/start': {
         cancelInFlight = false
+        state.cancelPending = false
         state.working = true
         state.turnStart = Date.now()
         state.responseChars = 0
@@ -6271,6 +6758,7 @@ ${output}
       }
       case 'turn/end': {
         cancelInFlight = false
+        state.cancelPending = false
         settleStreaming()
         state.working = false
         state.activeToolCount = 0
@@ -6308,7 +6796,11 @@ ${output}
           nextRowId += 1
           break
         }
-        const detail = reason.kind === 'error' ? reason.error.message : ''
+        // The notice renders as a single-line Divider title: error.message
+        // can carry newlines/control chars, and an embedded \n splits the
+        // rule across rows. cleanRenderText is the render-path single-line
+        // contract (sessionTree's preview() folds likewise for the tree).
+        const detail = reason.kind === 'error' ? cleanRenderText(reason.error.message, NOTICE_CELLS) : ''
         state.rows.push({ id: nextRowId, kind: 'notice', text: `turn ${reason.kind}${detail ? ` · ${detail}` : ''}` })
         nextRowId += 1
         state.notify(
@@ -6341,21 +6833,31 @@ ${output}
       case 'session/title':
         state.sessionTitle = event.data.title
         break
-      case 'todo/write':
-        // Whole-list snapshot — latest write wins; log-only UI state.
-        state.todos = event.data.todos
-        break
       default:
+        // dsh-tool-todo owns this optional module augmentation in alpha.2.
+        // Match by name so the TUI remains loadable without that plugin.
+        if ((event as { type: string }).type === 'todo/write') {
+          const todos = todoPanelItems((event as unknown as { data?: unknown }).data)
+          if (todos !== undefined) state.todos = todos
+          break
+        }
         // Logged preset switch (blank sessions only, issue #8): a transcript
         // marker so a replayed log shows which composition produced the
         // turns after it. Not in dsh-session's typed union — matched here by
         // name, like the other plugin-defined events above.
         if ((event as { type: string }).type === 'agent-preset/selected') {
           const data = event.data as unknown as { agentPreset?: string }
+          const recordedPreset = typeof data.agentPreset === 'string' ? data.agentPreset : undefined
+          const renamedOfficialPreset =
+            (recordedPreset === 'code' && state.agentPreset === 'ptc') ||
+            (recordedPreset === 'ptc' && state.agentPreset === 'code')
+          const preset = renamedOfficialPreset && state.agentPreset !== undefined
+            ? state.agentPreset
+            : recordedPreset ?? 'unknown'
           state.rows.push({
             id: nextRowId,
             kind: 'notice',
-            text: t('agent-preset-switched', { preset: data.agentPreset ?? 'unknown' }),
+            text: t('agent-preset-switched', { preset }),
           })
           nextRowId += 1
           break
@@ -6403,6 +6905,7 @@ ${output}
   // Attached to an idle agent: any replayed turn/start belongs to a previous
   // session run, so the spinner must not come up on boot.
   state.working = false
+  state.cancelPending = false
   state.status = agent.status
   state.emit()
 
@@ -6461,16 +6964,64 @@ ${output}
     return rendered
   }
 
+  // Working Activity is an optional presentation sidecar. A malformed durable
+  // event must never let it abort the authoritative channel projection (Cordis
+  // contains the listener throw, but the rest of THIS callback would otherwise
+  // be skipped — including turn/end and inbox retirement).
+  let activityFailureReported = false
+  const updateWorkingActivity = (
+    source: string,
+    update?: () => void,
+  ): ActivityStatus | undefined => {
+    try {
+      update?.()
+      return renderWorkingActivity()
+    } catch (error: unknown) {
+      if (!activityFailureReported) {
+        activityFailureReported = true
+        const detail = error instanceof Error ? error.message : String(error)
+        ctx.logger.warn(`dsh-tui: working-activity ignored ${source} after a projection error: ${detail}`)
+      }
+      return undefined
+    }
+  }
+
+  /**
+   * Release volatile UI gates when the bound driver is definitively quiescent
+   * but its terminal session event did not reach this projection. This does not
+   * invent a turn/end or any transcript fact; it only reconciles live controls
+   * to the authoritative Agent status so Enter/Esc cannot remain latched.
+   */
+  const reconcileRetiredProjection = (status: 'idle' | 'disposed'): void => {
+    if (!state.working) return
+    ctx.logger.warn(
+      `dsh-tui: agent became ${status} while the channel still projected an open turn; releasing volatile UI gates`,
+    )
+    cancelInFlight = false
+    state.cancelPending = false
+    state.working = false
+    state.activeToolCount = 0
+    settleStreaming()
+    updateSpinnerMode()
+  }
+
   const bindAgent = (): void => {
+    agentBindingGeneration += 1
+    state.agentBindingGeneration = agentBindingGeneration
     for (const dispose of agentSubscriptions) dispose()
     stopActivityTick()
+    // Cancel state and deferred interrupt delivery belong to one bound agent.
+    // A replacement must neither inherit the old latch nor receive its queued
+    // microtask after the session identity changes.
+    cancelInFlight = false
+    interruptSeq += 1
     const prefs = activityPrefsSnapshot()
     activityTracker = new ActivityTracker(prefs.config, Date.now, prefs.customActions)
-    activityTracker.onAgentStatus(agent.status)
-    renderWorkingActivity()
+    activityFailureReported = false
+    updateWorkingActivity('agent bind', () => activityTracker.onAgentStatus(agent.status))
     activityTickTimer = setInterval(() => {
       const previous = state.workingActivity
-      const rendered = renderWorkingActivity()
+      const rendered = updateWorkingActivity('activity tick')
       if (rendered === undefined) return
       // Live phases deliberately wake at 500 ms even when the formatted line
       // has not crossed its next whole-second boundary: turnElapsedMs remains
@@ -6514,14 +7065,15 @@ ${output}
       ctx.on('agent/status', ({ agent: subject, status }) => {
         if (subject !== agent) return
         state.status = status
-        activityTracker.onAgentStatus(status)
-        renderWorkingActivity()
+        updateWorkingActivity(`agent/status:${status}`, () => activityTracker.onAgentStatus(status))
+        if (status === 'idle') reconcileRetiredProjection('idle')
         state.emit()
       }),
       ctx.on('agent/disposed', ({ agent: subject }) => {
         if (subject !== agent) return
         state.status = 'disposed'
         stopActivityTick()
+        reconcileRetiredProjection('disposed')
         state.emit()
       }),
       // Pending delivery is driven by the agent inbox: a claimed message
@@ -6549,9 +7101,16 @@ ${output}
         }
       })(),
       ctx.on('session/event', (session, event) => {
-        // First check if this is a subagent session
-        const subagentId = subagentStore.getSubagentIdBySession(session)
-        if (subagentId) {
+        // The currently bound main session always wins. SubagentActivityStore
+        // intentionally retains Session-object mappings for completed cards;
+        // if one of those sessions is later adopted/resumed as the main agent,
+        // checking the stale child mapping first would swallow every main event
+        // (including turn/end) and leave working/cancelPending latched forever.
+        const isMainSession = session === agent.session
+        const subagentId = isMainSession
+          ? undefined
+          : subagentStore.getSubagentIdBySession(session)
+        if (subagentId !== undefined) {
           subagentStore.onSessionEvent(subagentId, event)
           if (event.type === 'assistant/chunk') {
             // Token-rate path (100-300 events/s): the store append stays
@@ -6566,22 +7125,23 @@ ${output}
           }
           return
         }
-        // Otherwise handle main agent session
-        if (session !== agent.session) return
+        // Otherwise handle the bound main-agent session.
+        if (!isMainSession) return
         // Observation broker (C-042): maps user/message + assistant/message
         // into grant-gated envelopes; every other event type is a no-op, and
         // publish never throws into this arm.
         messageObserver?.publish(session, event)
-        activityTracker.onSessionEvent(event)
-        // Interrupt quip: an aborted/interrupted turn ends the round; the
-        // comeback copy shows on the next thinking rotation (pi parity).
-        if ((event as { type: string }).type === 'turn/end') {
-          const reason = (event.data as { reason?: { kind?: string } }).reason
-          if (reason?.kind === 'aborted' || reason?.kind === 'interrupted') {
-            activityTracker.onInterrupted()
+        updateWorkingActivity(`session/event:${event.type}`, () => {
+          activityTracker.onSessionEvent(event)
+          // Interrupt quip: an aborted/interrupted turn ends the round; the
+          // comeback copy shows on the next thinking rotation (pi parity).
+          if ((event as { type: string }).type === 'turn/end') {
+            const reason = (event.data as { reason?: { kind?: string } }).reason
+            if (reason?.kind === 'aborted' || reason?.kind === 'interrupted') {
+              activityTracker.onInterrupted()
+            }
           }
-        }
-        renderWorkingActivity()
+        })
         // Mode-affecting atoms fold into the Shift+Tab mode indicator the
         // moment they land (whether appended by cycleMode or by hand).
         const eventType = (event as { type: string }).type
@@ -6705,7 +7265,7 @@ ${output}
           // is exactly what the column claims.
           noteBranch(agent.session.id, branch)
           // Feed the working line so git tools can show ` · git <branch>`.
-          activityTracker.onGitBranch(branch)
+          updateWorkingActivity('git branch', () => activityTracker.onGitBranch(branch))
           state.emit()
         }
       })
@@ -6786,6 +7346,19 @@ export function sessionCwdMatches(
 /** Context-bar token estimate (pi-nano-context: ~4 chars per token). */
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
+}
+
+/** Whether one stream chunk advances the first-token/decode boundary. */
+function isTokenDelta(chunk: StreamChunk): boolean {
+  switch (chunk.type) {
+    case 'text-delta':
+    case 'reasoning-delta':
+      return chunk.text !== ''
+    case 'tool-call-delta':
+      return chunk.argumentsDelta !== '' || chunk.name !== undefined
+    default:
+      return false
+  }
 }
 
 /** Character payload of one token-bearing stream delta for the live fallback. */

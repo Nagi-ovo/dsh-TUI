@@ -44,8 +44,8 @@ contract for humans and coding agents working on `@deepseek-harness-tui/dsh-tui`
 
 `@deepseek-harness-tui/dsh-tui` is a single-package, ESM-only TypeScript project. It provides a
 React terminal UI front door for DeepSeek Harness through Cordis. The package
-owns the TUI, its local command surface, packaged skills, and a ported Ink/Yoga
-renderer. DeepSeek Harness owns the agent, session, model, tool, persistence,
+owns the TUI, its local command surface, and a ported Ink/Yoga renderer.
+DeepSeek Harness owns the agent, session, model, tool, skill, persistence,
 and policy domains that the TUI consumes.
 
 Before making a broad change, read `package.json`, the relevant README section,
@@ -58,6 +58,21 @@ boundaries and helpers over introducing parallel abstractions.
   lazy handoff to the runtime plugin.
 - `src/dsh-adapter/plugin.ts`: TTY validation, service registration, agent creation/resume,
   React tree mounting, and terminal/process teardown.
+- `src/dsh-adapter/questions-answerer.ts` and `preset-resolution.ts`: isolate
+  upstream prerelease dispatch for user questions and agent presets so version
+  branches do not spread into bootstrap or channel actions. Note: the
+  questionnaire "provider seat"
+  guard (DUPLICATE_PROVIDER probe + private symbol check, #586) only applies to
+  the rc `registerProvider` path. On alpha.2's `user-questions/request`
+  waterfall, Cordis first scope-filters requests carrying an agent; agentless
+  `/auth` requests are dispatched without a scope carrier. Under the answerer
+  convention, the first eligible listener that returns instead of delegating
+  with `next()` claims the request. Cordis waterfall is around middleware,
+  however: an outer listener can call `next()` and then observe, replace, or
+  reject the downstream result, while `{ prepend: true }` inserts a listener
+  at the front. Upstream offers no supported way to discover or reserve a
+  verifiably exclusive claimant, so the legacy seat guard and its warning
+  cannot be reproduced locally.
 - `src/dsh-adapter/channel.ts`: event-to-view projection and the non-React action surface.
   It translates DSH session events into transcript rows and implements submit,
   steering, rewind, resume, model/preset switching, local reports, and related
@@ -80,8 +95,8 @@ boundaries and helpers over introducing parallel abstractions.
   Claude Code-style UI.
 - `src/*Prefs.ts`, `src/customTheme.ts`, and `src/sessionHistory.ts`: persisted
   user preferences and local session metadata under `~/.dsh-tui`.
-- `skills/*/SKILL.md`: skills shipped in the npm package and registered by
-  `src/dsh-adapter/packaged-skills.ts`.
+- `.agents/skills/*/SKILL.md`: project skills for repository maintainers,
+  discovered by the DSH filesystem provider and excluded from the npm package.
 - `cordis.patch.yml`: package bundle overlay used by profile installation.
   Ordering, row IDs, disabled host rows, and insert/override semantics matter.
 - `cordis.yml`: full bare-composition example for direct Cordis/DSH startup.
@@ -130,11 +145,19 @@ seam.
 
 - Supported Node versions are `^22.19 || >=24`; CI uses Node 24.
 - CI and publishing use pnpm 11. Use pnpm as the development package manager.
+  The `packageManager` field in the root `package.json` is the single source of
+  truth for the pnpm version; both CI and corepack read it from there.
 - Install a clean checkout with:
 
   ```sh
+  git clone --recurse-submodules https://github.com/ccch1mneyyy/dsh-TUI.git
+  cd dsh-TUI
   pnpm install --frozen-lockfile
   ```
+
+  In an existing checkout, run `git submodule update --init --recursive` first.
+  `vendor/dsh-std` and `dsh-auth` are workspace / `link:` dependencies, so the
+  install always fails while those submodules are empty.
 
 - `pnpm-lock.yaml` is the single lockfile. npm consumers do not read a
   dependency's lockfile, so `package-lock.json` has been removed (follow-up of
@@ -231,9 +254,15 @@ change, also run the closest focused script:
 | Prompt queue behavior | `node scripts/verify-queue.mjs` |
 | Goal/todo projection and rendering | `node scripts/verify-channel-goal-todo.mjs` and `node scripts/verify-goal-todo.mjs` |
 | Compaction and folded transcript rows | `node scripts/verify-compact.mjs` |
-| Theme loading and persistence | `node --import tsx/esm scripts/verify-themes.mjs` |
+| Compaction × session-switch lifecycle (cancel before the fork snapshot, persistence-classified toast) | `node --import tsx/esm scripts/verify-compact-switch.tsx` |
+| Theme loading, persistence, and runtime plugin seam | `node --import tsx/esm scripts/verify-themes.mjs`, `node --import tsx/esm scripts/verify-runtime-themes.ts` |
 | Scrolling/sticky-bottom behavior | `node scripts/verify-scroll.mjs`, `node scripts/verify-resticky.mjs`, and the matching `repro-*` harness |
+| Long plan-review body (`exit_plan_mode` windowing + wheel) | `node --import tsx/esm scripts/verify-plan-review-scroll.tsx` |
 | Fullscreen copy-on-select | `node scripts/verify-copy-on-select.mjs` |
+| Component-level mouse drag protocol (target capture, bubbling, click/selection compatibility, interrupted-session cleanup) | `node --import tsx/esm scripts/verify-drag-protocol.tsx` |
+| Mouse pointer event pipeline (wheel coords/modifier bits, click/hover dispatch, out-of-bounds clamping, pointer-state reset) | `node --import tsx/esm scripts/verify-pointer-events.ts` |
+| Hover event performance (complete interest boundaries, no-interest rect fast path, frame/multi-root invalidation) | `node --import tsx/esm scripts/verify-hover-coalesce.tsx` |
+| Prompt-input mouse selection editing (drag/Shift+click/double-click word select, delete/replace, layered Esc, Ctrl+C copy, CJK wide cells, fold-side clamping) | `node --import tsx/esm scripts/verify-input-selection.tsx` |
 
 Most focused scripts invoked with plain `node` import `lib/types/`; run
 `pnpm build` first. Scripts that import TypeScript sources declare the
@@ -335,10 +364,10 @@ the required credentials.
   `Chat.tsx`; registry commands are merged at runtime. When adding a command,
   update declaration, dispatch, help/documentation, the i18n description
   (`cmd-desc-<name>` in `src/i18n.ts`, zh only — en falls back to the
-  declaration), and any packaged skill mapping together.
-- Skill command spelling is not always the directory spelling. For example,
-  the local `/pr_comments` command activates the packaged `pr-comments` skill.
-  Preserve explicit mappings and host naming constraints.
+  declaration), and any related skill mapping together.
+- Skill commands stay out of LOCAL_COMMANDS: user-invocable skills discovered by
+  DSH are merged from the registry as dispatch commands. Names must be parseable
+  kebab-case and must not collide with a local command.
 - Keep `ask_user_question` serialized through `QuestionStore`; concurrent
   questions are intentionally presented FIFO and summarized after completion.
 
@@ -372,11 +401,13 @@ the required credentials.
 - Persist user data beneath the existing `~/.dsh-tui` locations. Validate and
   safely parse external JSON; malformed optional state should warn or fall
   back rather than crash the TUI.
-- Treat theme names and file contents as untrusted input. Preserve path
-  containment checks and all-or-nothing validation of malformed theme files.
+- Treat theme names, plugin descriptors, and file contents as untrusted input.
+  Preserve path containment checks, plugin ID constraints, activation cleanup,
+  and all-or-nothing validation of malformed theme files.
 - Keep theme additions complete across the `Theme` contract and every built-in
-  palette. Use semantic theme keys in components instead of isolated literal
-  colors.
+  palette. Runtime themes must use the `tuiThemes` seam; plugins must not rewrite
+  `~/.dsh-tui/themes/` or bypass the managed extension service. Use semantic
+  theme keys in components instead of isolated literal colors.
 
 ## Cross-File Change Checklist
 
@@ -384,10 +415,10 @@ the required credentials.
 | --- | --- |
 | Plugin config or environment behavior | `src/index.ts`, runtime consumer, `cordis.patch.yml`, `cordis.yml`, `README.md`, `README_EN.md` |
 | Slash commands or shortcuts | `src/commands.ts`, `src/screens/Chat.tsx`, help/input components, both READMEs, relevant skill mapping/tests |
-| Theme contract or persisted theme behavior | `src/theme.ts`, all palettes, theme provider/picker, custom-theme parser, theme verification, both READMEs |
+| Theme contract, plugin seam, or persisted theme behavior | `src/theme.ts`, `src/themeCatalog.ts`, `src/dsh-adapter/themes.ts`, all palettes, theme provider/picker, custom-theme parser, theme verification, both READMEs, plugin docs |
 | Session/channel behavior | `src/dsh-adapter/channel.ts`, affected UI projections, compiled output, focused channel/replay regression |
 | Renderer/layout behavior | `src/ink/` or Yoga source, compiled output, CI regressions, focused scroll/resize/PTY probe |
-| Packaged skill | `skills/<name>/SKILL.md`, `src/dsh-adapter/packaged-skills.ts` assumptions, command prompt/mapping if exposed as a slash command |
+| Skill discovery or presentation | DSH adapter, slash-command merge, `/skills`, and focused regressions; maintainer-only skills live in `.agents/skills/` and must stay out of npm |
 | User-facing documented behavior | Chinese and English READMEs, plus config comments/help text where applicable |
 | Package version or dependency | `package.json`, `pnpm-lock.yaml`, generated/published artifacts as applicable; do not churn the legacy npm lock incidentally |
 

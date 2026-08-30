@@ -57,6 +57,15 @@ export interface CommandCompletion extends LocalCommand {
 export type CommandChildren = (canonicalPath: readonly string[]) => readonly CommandCompletionNode[]
 
 /**
+ * Whether a value can occupy one command-completion token. Keep this aligned
+ * with the grammar accepted by {@link completeCommands}; callers that need an
+ * empty prefix handle that case separately.
+ */
+export function isCommandCompletionToken(value: string): boolean {
+  return /^[a-z0-9_.:\/-]+$/iu.test(value)
+}
+
+/**
  * The built-in slash commands (name + description pairs). Plugin-registered
  * commands merge in at runtime; locals win on name collisions.
  */
@@ -95,6 +104,7 @@ export const LOCAL_COMMANDS: LocalCommand[] = [
   { name: 'thinking', description: 'Toggle extended thinking display' },
   { name: 'tokens', description: 'Show session token usage' },
   // Account / policy
+  { name: 'balance', description: 'Show DeepSeek account balance' },
   { name: 'provider', description: 'Add an LLM provider (catalog or custom API endpoint)' },
   { name: 'login', description: 'Show API credential status' },
   { name: 'logout', description: 'Clear the API credential' },
@@ -104,14 +114,8 @@ export const LOCAL_COMMANDS: LocalCommand[] = [
   { name: 'skills', description: 'List available skills' },
   { name: 'plugins', description: 'Show plugin contract, grant, and ledger diagnostics' },
   { name: 'update', description: 'Update dsh-tui and restart' },
-  // Built-in skills (CC's skill commands, driven through DSH skills)
-  { name: 'audit', description: 'Run a comprehensive code audit on this project' },
-  { name: 'bug', description: 'Capture a bug report' },
-  { name: 'practice', description: 'Practice programming with dsh-tui' },
-  { name: 'review', description: 'Run a comprehensive code review on this project' },
-  { name: 'pr_comments', description: 'Review pull request comments' },
-  { name: 'release-notes', description: 'Generate release notes' },
-  { name: 'vuln-check', description: 'Run a security vulnerability check' },
+  // Skills are discovered through the DSH registry and added at runtime.
+  // A local entry of the same name would win the collision filter.
   // Misc / not applicable on this leaf
   { name: 'vim', description: 'Toggle vim mode' },
   { name: 'terminal-setup', description: 'Show terminal setup instructions' },
@@ -232,7 +236,7 @@ export function completeCommands(
   // Token charset includes `. : /` so provider/model specs (e.g.
   // `deepseek/deepseek-v4-flash`, `openai/gpt-4.1`) survive as ONE token —
   // the /model completion matches its candidates against the whole spec.
-  if (!/^[a-z0-9_.:\/-]*(?:[\t ]+[a-z0-9_.:\/-]*)*$/iu.test(body)) return []
+  if (!body.split(/[\t ]+/u).every(token => token === '' || isCommandCompletionToken(token))) return []
   const trailingSeparator = /[\t ]$/u.test(body)
   const tokens = body.split(/[\t ]+/u)
   const prefix = trailingSeparator ? '' : (tokens.pop() ?? '')
@@ -250,7 +254,7 @@ export function completeCommands(
   const normalizedPrefix = prefix.toLowerCase()
   return candidates.flatMap(candidate => {
     const completionToken = matchingCompletionToken(candidate, normalizedPrefix)
-    if (completionToken === undefined) return []
+    if (completionToken === undefined || !isCommandCompletionToken(completionToken)) return []
     const path = [...tokens, completionToken]
     const commandLine = `/${path.join(' ')}`
     return [{

@@ -34,8 +34,8 @@
 适用于在本仓库工作的所有人与编码 Agent。
 
 `@deepseek-harness-tui/dsh-tui` 是单包、纯 ESM 的 TypeScript 项目：为 DeepSeek Harness 提供
-React 终端 UI 前门（通过 Cordis 挂载）。包内拥有 TUI、本地命令面、打包技能
-以及移植的 Ink/Yoga 渲染器；Agent、会话、模型、工具、持久化与策略域由
+React 终端 UI 前门（通过 Cordis 挂载）。包内拥有 TUI、本地命令面
+以及移植的 Ink/Yoga 渲染器；Agent、会话、模型、工具、技能、持久化与策略域由
 DeepSeek Harness 拥有，TUI 只消费它们。
 
 做大改动前，先读 `package.json`、相关 README 章节和你将要编辑的每个源文件。
@@ -46,6 +46,17 @@ DeepSeek Harness 拥有，TUI 只消费它们。
 - `src/index.ts`：公共 Cordis 插件入口、配置 Schema，与对运行时插件的惰性移交。
 - `src/dsh-adapter/plugin.ts`：TTY 校验、服务注册、Agent 创建/恢复、React 树挂载，以及
   终端/进程的收尾清理。
+- `src/dsh-adapter/questions-answerer.ts` 与 `preset-resolution.ts`：隔离
+  user-questions / agent-preset 的上游预发布兼容分派，避免把版本分支散进
+  bootstrap 与 channel 动作面。注意：问卷
+  "provider 座位"守卫（DUPLICATE_PROVIDER 探测 + 私有 symbol 校验，#586）只在
+  rc 的 `registerProvider` 路径生效。alpha.2 的 `user-questions/request`
+  waterfall 对带 agent 的请求先按 scope 过滤 listener；agentless 的 `/auth` 请求
+  不带 scope carrier。按 answerer 约定，首个不调用 `next()` 委派的 eligible
+  listener 会 claim 请求；但 Cordis waterfall 是 around middleware，外层 listener
+  即使调用 `next()` 也能观察、替换或拒绝下游结果，`{ prepend: true }` 会把 listener
+  插到队首。上游没有受支持的方法发现或保留可验证的独占 claimant，因此 legacy
+  seat guard 及其告警无法在本地复现。
 - `src/dsh-adapter/channel.ts`：事件到视图的投影 + 非 React 的动作面。把 DSH 会话事件
   翻译成 transcript 行，实现 submit、steer、rewind、resume、模型/preset 切换、
   本地报告及相关状态迁移。
@@ -64,7 +75,7 @@ DeepSeek Harness 拥有，TUI 只消费它们。
 - `src/cc/`：为 Claude Code 风格 UI 适配的终端格式化与呈现辅助。
 - `src/*Prefs.ts`、`src/customTheme.ts`、`src/sessionHistory.ts`：持久化的
   用户偏好与 `~/.dsh-tui` 下的本地会话元数据。
-- `skills/*/SKILL.md`：随 npm 包分发的技能，由 `src/dsh-adapter/packaged-skills.ts` 注册。
+- `.agents/skills/*/SKILL.md`：仅供仓库维护者使用的项目技能，由 DSH 文件系统 provider 发现，不随 npm 包分发。
 - `cordis.patch.yml`：profile 安装时使用的包级 bundle 覆盖层。行的顺序、行 ID、
   被禁用的 host 行、insert/override 语义都很关键。
 - `cordis.yml`：直接 Cordis/DSH 启动的完整裸组合示例。
@@ -105,8 +116,11 @@ Cordis config
 ## 工具链（Toolchain）
 
 - 支持 Node `^22.19 || >=24`；CI 用 Node 24。
-- CI 与发布用 pnpm 11；开发也请用 pnpm。
-- 干净检出安装：`pnpm install --frozen-lockfile`。
+- CI 与发布用 pnpm 11；开发也请用 pnpm。根 `package.json` 的 `packageManager`
+  字段是 pnpm 版本的唯一真源，CI 与 corepack 都从这里取值。
+- 干净检出安装：先 `git clone --recurse-submodules`（或在已有检出里
+  `git submodule update --init --recursive`），再 `pnpm install --frozen-lockfile`。
+  `vendor/dsh-std` 与 `dsh-auth` 是 workspace / `link:` 依赖，子模块为空时安装必失败。
 - `pnpm-lock.yaml` 是唯一锁文件。npm 消费方不读依赖包的 lockfile，
   `package-lock.json` 已移除（见 #173 后续处理）。
 - 有意改依赖时：用 `pnpm add` 更新 `pnpm-lock.yaml`，检查完整 lockfile diff，
@@ -179,9 +193,15 @@ CI 回归都要跑。窄改动还要跑最近的聚焦脚本：
 | 提示队列行为 | `node scripts/verify-queue.mjs` |
 | Goal/todo 投影与渲染 | `node scripts/verify-channel-goal-todo.mjs` + `node scripts/verify-goal-todo.mjs` |
 | Compaction 与折叠 transcript 行 | `node scripts/verify-compact.mjs` |
-| 主题加载与持久化 | `node --import tsx/esm scripts/verify-themes.mjs` |
+| 压缩 × 会话切换生命周期（取消先于 fork 快照、persistence 分类提示） | `node --import tsx/esm scripts/verify-compact-switch.tsx` |
+| 主题加载、持久化与运行时插件接缝 | `node --import tsx/esm scripts/verify-themes.mjs`、`node --import tsx/esm scripts/verify-runtime-themes.ts` |
 | 滚动/粘底行为 | `node scripts/verify-scroll.mjs`、`node scripts/verify-resticky.mjs` 及对应 `repro-*` 环境 |
+| 计划评审长正文（`exit_plan_mode` 窗口化 + 滚轮） | `node --import tsx/esm scripts/verify-plan-review-scroll.tsx` |
 | 全屏复制即选区 | `node scripts/verify-copy-on-select.mjs` |
+| 组件级鼠标拖拽协议（目标捕获、事件冒泡、点击/选区兼容与中断收尾） | `node --import tsx/esm scripts/verify-drag-protocol.tsx` |
+| 鼠标指针事件管线（滚轮坐标/修饰位、点击/hover 派发、越界 clamp、指针态重置） | `node --import tsx/esm scripts/verify-pointer-events.ts` |
+| Hover 事件性能（兴趣边界完整、无兴趣矩形快路径、帧边界/多 root 失效） | `node --import tsx/esm scripts/verify-hover-coalesce.tsx` |
+| 输入框鼠标选区编辑（拖选/Shift+click/双击选词/删除替换/Esc 分层/Ctrl+C 复制、CJK 宽字符与 fold 侧钳制） | `node --import tsx/esm scripts/verify-input-selection.tsx` |
 
 多数用普通 `node` 调用的脚本 import `lib/types/`——先跑 `pnpm build`。import
 TypeScript 源的脚本在头部声明 `node --import tsx/esm <script>` 形式。不要凭
@@ -257,10 +277,10 @@ TypeScript 源的脚本在头部声明 `node --import tsx/esm <script>` 形式�
 - 不要在单个组件里硬编码新快捷键就完事。同步更新相关帮助 UI 与双 README
   快捷键表，并为与既有模式的冲突新增或扩展回归。
 - 本地 slash 命令在 `src/commands.ts` 声明、`Chat.tsx` 分发；注册表命令运行时
-  合并。新增命令时同步更新声明、分发、帮助/文档、i18n 描述（`src/i18n.ts` 的
-  `cmd-desc-<name>`，只写 zh——en 回退声明原文）与打包技能映射。
-- 技能命令拼写不总等于目录拼写（如本地 `/pr_comments` 激活打包的
-  `pr-comments` 技能）。保留显式映射与 host 命名约束。
+  合并。新增命令时同步更新声明、分发、帮助/文档与 i18n 描述（`src/i18n.ts` 的
+  `cmd-desc-<name>`，只写 zh——en 回退声明原文）。
+- 技能命令不进本地名单：DSH 发现的 user-invocable 技能经注册表合并为直调命令，
+  命令名必须是可解析的 kebab-case，且不能与本地命令撞名。
 - `ask_user_question` 必须经 `QuestionStore` 串行化；并发问题刻意 FIFO 呈现，
   结束后汇总。
 
@@ -288,10 +308,11 @@ TypeScript 源的脚本在头部声明 `node --import tsx/esm <script>` 形式�
   检测/默认值。改变该顺序要记录。
 - 用户数据持久化在既有 `~/.dsh-tui` 位置下。校验并安全解析外部 JSON；损坏的
   可选状态应警告或回退，而不是让 TUI 崩溃。
-- 把主题名与文件内容当不可信输入。保留路径包含检查与损坏主题文件的
-  全有或全无校验。
+- 把主题名、插件主题 descriptor 与文件内容当不可信输入。保留路径包含检查、插件
+  ID 约束与损坏主题文件的全有或全无校验；插件注册必须随 activation 清理。
 - 主题新增必须完整覆盖 `Theme` 契约与每个内置色板。组件用语义主题键，不要用
-  孤立的字面颜色。
+  孤立的字面颜色。运行时主题通过 `tuiThemes` 接缝接入，不要让插件直接改写
+  `~/.dsh-tui/themes/` 或绕过现有扩展服务。
 
 ## 跨文件修改清单（Cross-File Change Checklist）
 
@@ -299,10 +320,10 @@ TypeScript 源的脚本在头部声明 `node --import tsx/esm <script>` 形式�
 | --- | --- |
 | 插件配置或环境行为 | `src/index.ts`、运行时消费、`cordis.patch.yml`、`cordis.yml`、`README.md`、`README_EN.md` |
 | Slash 命令或快捷键 | `src/commands.ts`、`src/screens/Chat.tsx`、帮助/输入组件、双 README、相关技能映射/测试 |
-| 主题契约或持久化主题行为 | `src/theme.ts`、所有色板、主题 provider/picker、自定义主题解析器、主题验证、双 README |
+| 主题契约、插件接缝或持久化主题行为 | `src/theme.ts`、`src/themeCatalog.ts`、`src/dsh-adapter/themes.ts`、所有色板、主题 provider/picker、自定义主题解析器、主题验证、双 README、插件文档 |
 | 会话/channel 行为 | `src/dsh-adapter/channel.ts`、受影响的 UI 投影、编译产物、聚焦 channel/回放回归 |
 | 渲染器/布局行为 | `src/ink/` 或 Yoga 源、编译产物、CI 回归、聚焦滚动/resize/PTY 探针 |
-| 打包技能 | `skills/<name>/SKILL.md`、`src/dsh-adapter/packaged-skills.ts` 假设、暴露为 slash 命令时的提示/映射 |
+| 技能发现或呈现 | DSH adapter、slash 命令合并、`/skills` 与相关回归；项目维护技能放 `.agents/skills/` 且不得加入 npm 包 |
 | 用户可见的文档化行为 | 中英文 README，外加适用的配置注释/帮助文本 |
 | 包版本或依赖 | `package.json`、`pnpm-lock.yaml`、适用时的生成/发布产物；不要顺手搅动旧 npm 锁文件 |
 

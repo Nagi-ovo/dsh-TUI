@@ -47,16 +47,22 @@ const {
   profilePackageDir,
   removeStalePackageInstall,
   ensureProfileAllowBuilds,
+  ensureProfileReleaseAgeExclude,
   profileWorkspaceYamlPath,
+  isStandaloneRuntime,
+  getStandaloneBinaryPath,
+  getStandaloneAssetName,
 } = await import('../lib/types/update.js')
 const compiledModulePath = fileURLToPath(new URL('../lib/types/update.js', import.meta.url))
 const compiledShellQuotePath = fileURLToPath(new URL('../lib/types/utils/shellQuote.js', import.meta.url))
 const compiledPathsPath = fileURLToPath(new URL('../lib/types/utils/paths.js', import.meta.url))
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 
-// The compiled update.js imports ./utils/shellQuote.js and ./utils/paths.js
-// (the /restart log lives under DATA_DIR) — mirror all three into every
-// scratch layout or the import dies with ERR_MODULE_NOT_FOUND.
+/**
+ * Mirror compiled update module and its dependencies into a scratch directory.
+ *
+ * @param {string} dstDir - Destination directory to receive the modules.
+ */
 function copyUpdateModule(dstDir) {
   mkdirSync(join(dstDir, 'utils'), { recursive: true })
   cpSync(compiledModulePath, join(dstDir, 'update.js'))
@@ -317,6 +323,85 @@ check(
     if (DSH_HOME_BACKUP === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = DSH_HOME_BACKUP
     rmSync(allowScratch, { recursive: true, force: true })
+  }
+}
+
+// ---- pnpm minimumReleaseAgeExclude pre-seed: pnpm ≥11 delays installs of
+// packages published within minimumReleaseAge (24h default) — on release day
+// that gate refuses the exact version /update pins, so the update flow must
+// exempt this package at the exact target before pnpm runs.
+{
+  const DSH_HOME_BACKUP = process.env.DSH_HOME
+  const ageScratch = mkdtempSync(join(tmpdir(), 'verify-releaseage-'))
+  const profileRoot = join(ageScratch, 'profiles', 'tui')
+  try {
+    process.env.DSH_HOME = ageScratch
+    mkdirSync(profileRoot, { recursive: true })
+    const yamlPath = profileWorkspaceYamlPath('tui')
+
+    // Case 1: no workspace file yet → created with the exact-version entry.
+    let outcome = ensureProfileReleaseAgeExclude('tui', '0.10.0-beta.1')
+    check(
+      'releaseAge: missing file is created with the exact entry',
+      outcome !== undefined && outcome.changed === true &&
+        outcome.entries.length === 1 &&
+        outcome.entries[0] === '@deepseek-harness-tui/dsh-tui@0.10.0-beta.1' &&
+        existsSync(yamlPath),
+      JSON.stringify(outcome),
+    )
+    let text = readFileSync(yamlPath, 'utf8')
+    check(
+      'releaseAge: file carries the quoted list entry',
+      /minimumReleaseAgeExclude:\n  - '@deepseek-harness-tui\/dsh-tui@0\.10\.0-beta\.1'\n/u.test(text),
+      text,
+    )
+
+    // Case 2: idempotent — the same version again changes nothing.
+    const before = readFileSync(yamlPath, 'utf8')
+    outcome = ensureProfileReleaseAgeExclude('tui', '0.10.0-beta.1')
+    check(
+      'releaseAge: second run for the same version is a no-op',
+      outcome !== undefined && outcome.changed === false && readFileSync(yamlPath, 'utf8') === before,
+      JSON.stringify(outcome),
+    )
+
+    // Case 3: a stale entry for this package is replaced (no accumulation)
+    // while foreign entries survive.
+    writeFileSync(yamlPath, "minimumReleaseAgeExclude:\n  - 'x@1.0.0'\n  - '@deepseek-harness-tui/dsh-tui@0.9.3'\n")
+    outcome = ensureProfileReleaseAgeExclude('tui', '0.10.0-beta.1')
+    text = readFileSync(yamlPath, 'utf8')
+    check(
+      'releaseAge: stale own entry replaced, foreign entry kept',
+      outcome !== undefined && outcome.changed === true &&
+        text.includes("- 'x@1.0.0'") &&
+        text.includes("- '@deepseek-harness-tui/dsh-tui@0.10.0-beta.1'") &&
+        !text.includes('0.9.3'),
+      `${JSON.stringify(outcome)} :: ${text}`,
+    )
+
+    // Case 4: a file without the block keeps its content and gains one.
+    writeFileSync(yamlPath, 'packages:\n  - .\n\nnodeLinker: hoisted\n')
+    outcome = ensureProfileReleaseAgeExclude('tui', '1.2.3')
+    text = readFileSync(yamlPath, 'utf8')
+    check(
+      'releaseAge: block appended, existing keys preserved',
+      outcome !== undefined && outcome.changed === true &&
+        text.startsWith('packages:\n  - .\n\nnodeLinker: hoisted\n') &&
+        text.includes("minimumReleaseAgeExclude:\n  - '@deepseek-harness-tui/dsh-tui@1.2.3'\n"),
+      text,
+    )
+
+    // Case 5: absent profile directory → undefined, nothing written.
+    outcome = ensureProfileReleaseAgeExclude('missing-profile', '1.2.3')
+    check(
+      'releaseAge: absent profile directory yields undefined',
+      outcome === undefined,
+      JSON.stringify(outcome),
+    )
+  } finally {
+    if (DSH_HOME_BACKUP === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = DSH_HOME_BACKUP
+    rmSync(ageScratch, { recursive: true, force: true })
   }
 }
 
@@ -607,8 +692,50 @@ check(
   }
 }
 
+// ---- standalone: 便携包环境检测与资产名称解析 --------------------------------
+{
+  const origEnv = {
+    standalone: process.env.DSH_TUI_STANDALONE,
+    binary: process.env.DSH_TUI_STANDALONE_BINARY,
+    dshHome: process.env.DSH_HOME,
+  }
+  try {
+    delete process.env.DSH_TUI_STANDALONE
+    delete process.env.DSH_TUI_STANDALONE_BINARY
+    process.env.DSH_HOME = '/home/user/.dsh'
+    check('standalone: 默认非便携模式', isStandaloneRuntime() === false)
+
+    process.env.DSH_TUI_STANDALONE = '1'
+    check('standalone: DSH_TUI_STANDALONE=1 识别为便携模式', isStandaloneRuntime() === true)
+
+    delete process.env.DSH_TUI_STANDALONE
+    process.env.DSH_TUI_STANDALONE_BINARY = '/tmp/dsh-tui'
+    check('standalone: DSH_TUI_STANDALONE_BINARY 识别为便携模式', isStandaloneRuntime() === true)
+    check('standalone: getStandaloneBinaryPath 返回指定路径', getStandaloneBinaryPath() === '/tmp/dsh-tui')
+
+    delete process.env.DSH_TUI_STANDALONE_BINARY
+    process.env.DSH_HOME = '/home/user/.dsh-tui-standalone'
+    check('standalone: DSH_HOME 包含 dsh-tui-standalone 识别为便携模式', isStandaloneRuntime() === true)
+
+    // 资产名称匹配
+    check('standalone: Windows 资产名匹配', getStandaloneAssetName('win32', 'x64') === 'dsh-tui-standalone-win-x64.zip')
+    check('standalone: macOS arm64 资产名匹配', getStandaloneAssetName('darwin', 'arm64') === 'dsh-tui-standalone-darwin-arm64.tar.gz')
+    check('standalone: macOS x64 资产名匹配', getStandaloneAssetName('darwin', 'x64') === 'dsh-tui-standalone-darwin-x64.tar.gz')
+    check('standalone: Linux x64 资产名匹配', getStandaloneAssetName('linux', 'x64') === 'dsh-tui-standalone-linux-x64.tar.gz')
+    check('standalone: Linux arm64 资产名匹配', getStandaloneAssetName('linux', 'arm64') === 'dsh-tui-standalone-linux-arm64.tar.gz')
+  } finally {
+    if (origEnv.standalone === undefined) delete process.env.DSH_TUI_STANDALONE
+    else process.env.DSH_TUI_STANDALONE = origEnv.standalone
+    if (origEnv.binary === undefined) delete process.env.DSH_TUI_STANDALONE_BINARY
+    else process.env.DSH_TUI_STANDALONE_BINARY = origEnv.binary
+    if (origEnv.dshHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = origEnv.dshHome
+  }
+}
+
 if (failed > 0) {
   console.error(`\n${failed} check(s) failed`)
   process.exit(1)
 }
 console.log('\nall checks passed')
+
