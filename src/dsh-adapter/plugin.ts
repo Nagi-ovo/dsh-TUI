@@ -41,6 +41,7 @@ import { detectLegacyEnv, migrateLegacyDataDir, RENAMED_ENV } from '../utils/pat
 import { attachHerdrIntegration } from '../herdr.js'
 import { logMouseDebug } from '../utils/debug.js'
 import { Chat } from '../screens/Chat.js'
+import { openInjectChannel, type InjectController } from './inject-channel.js'
 import { getHostDialogStore, type TuiDialogRuntime } from './dialogs.js'
 import { getHostStatusStore, type TuiStatusRuntime } from './status.js'
 import { getHostToastStore, type TuiToastRuntime } from './toast.js'
@@ -532,6 +533,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     foldTerminalCommand: config.foldTerminalCommand,
     promptSessionLabel: config.promptSessionLabel,
     expandEditor: config.expandEditor,
+    smoothStreaming: config.smoothStreaming,
     statusBar: config.statusBar,
     handle,
   })
@@ -599,6 +601,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         // resolves `?? config.expandEditor ?? true` so cordis.yml stays
         // decisive while the user layer is unset.
         expandEditor: Schema.boolean(),
+        // Same no-default rule: applyDisplay resolves `?? config.smoothStreaming ?? true`.
+        smoothStreaming: Schema.boolean(),
         statusBar: Schema.object({
           compact: Schema.boolean().default(DEFAULT_STATUS_BAR.compact),
           model: Schema.boolean().default(DEFAULT_STATUS_BAR.model),
@@ -650,6 +654,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       foldTerminalCommand?: boolean
       promptSessionLabel?: boolean
       expandEditor?: boolean
+      smoothStreaming?: boolean
       statusBar?: Partial<StatusBarConfig>
       shortcuts?: Partial<Record<ShortcutActionId, string>>
     }
@@ -691,6 +696,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       channel.setFoldTerminalCommand(value.foldTerminalCommand ?? config.foldTerminalCommand ?? false)
       channel.setPromptSessionLabel(value.promptSessionLabel ?? config.promptSessionLabel ?? false)
       channel.setExpandEditor(value.expandEditor ?? config.expandEditor ?? true)
+      channel.setSmoothStreaming(value.smoothStreaming ?? config.smoothStreaming ?? true)
       channel.setStatusBar(normalizeStatusBar(value.statusBar ?? config.statusBar))
     }
     // Shortcut overrides resolve per action: settings user layer wins over
@@ -986,6 +992,18 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           },
         },
         {
+          path: ['smoothStreaming'],
+          label: 'Smooth streaming',
+          descriptions: { zh: '流式平滑输出' },
+          hint: 'Reveal live replies, expanded thinking, and tool-call bodies through an even ~30fps flow instead of per-burst jumps; one-shot non-streaming replies paint as a flow too. Replay/history always paints complete. On by default.',
+          hintDescriptions: { zh: '把实时回复、展开的思考与工具卡正文按 ~30fps 匀速揭示，不再随供应商突发一跳一跳；一次性到达的非流式回复也会平滑打出。回放/历史内容始终完整直出。默认开启。' },
+          kind: 'boolean',
+          format(value: unknown): string {
+            // Unset in settings.yaml: the effective default is on.
+            return String(typeof value === 'boolean' ? value : config.smoothStreaming !== false)
+          },
+        },
+        {
           path: ['recapOnOpen'],
           label: 'Auto recap on open',
           descriptions: { zh: '打开会话时自动总结' },
@@ -1183,15 +1201,16 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // DSH approval seam: the permission layer asks ApprovalService.request(),
   // which dispatches an `approval/request` waterfall. With no answerer the
   // chain falls through to the fail-closed 'unavailable', so register this
-  // TUI as the interactive answerer for the agent it owns; requests for
-  // other agents delegate down the chain (next()). Guarded on the service
-  // being mounted — a bare composition without the dsh-base approval row
-  // has nothing to answer into. channel.agentId tracks agent swaps
-  // (/new, /resume, rewind), so ownership is re-evaluated per request.
+  // TUI as the interactive answerer for EVERY agent in this process — the
+  // attached session's asks and any background (agent view) session's asks
+  // alike, so an unattended session surfaces as "needs input" instead of
+  // failing closed. One ask is shown at a time, whichever agent asked.
+  // Guarded on the service being mounted — a bare composition without the
+  // dsh-base approval row has nothing to answer into.
   const approvalStore = new ApprovalStore()
   if (ctx.get('approval') !== undefined) {
     ctx.on('approval/request', (req, next) =>
-      String(req.agent.id) === channel.agentId ? approvalStore.park(req) : next())
+      approvalStore.park(req).catch(() => next()))
     // Badge-flip push (P-4): React does not know the session log appended —
     // a source-badge verdict that only flips inside getSnapshot() surfaces
     // solely when something else re-renders. Feed the session firehose to
@@ -1203,6 +1222,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     ctx.on('session/event', (_session, event) => approvalStore.noteSessionEvent(event))
     ctx.effect(() => () => approvalStore.settleAll('cancelled'))
   }
+  // The agent view reads parked ask ids for its "needs input" state.
+  channel.bindApprovalStore(approvalStore)
   const herdr = attachHerdrIntegration({
     channel,
     questions: questionStore,
@@ -1353,6 +1374,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
   const handleExit = funnel.handleExit
 
+  // External injection controller: Chat fills it with `{ append, submit }`
+  // every render; the injection socket (opened below) drives it. A ref rather
+  // than a prop callback so the socket handler always reaches the live Chat.
+  const injectControllerRef = React.createRef<InjectController | null>() as React.RefObject<InjectController | null>
+
   // Chat's `fullscreen` prop must match the root wrap below, or the
   // full-screen surfaces inside Chat (session browser, settings, trajectory,
   // subagent pages) would nest a SECOND <AlternateScreen> — whose unmount
@@ -1366,6 +1392,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     channel,
     questionStore,
     approvalStore,
+    injectControllerRef,
     // The dsh-tui-extensions row's services (managed dialogs, status line,
     // shortcuts). Soft-consumed: absent the row (stale patch, bare embed),
     // Chat falls back to inert stores and no shortcut registry.
@@ -1460,6 +1487,23 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // parent only within the survival window — this line is the durable mark).
   if (process.env.DSH_TUI_RESTART_CHILD === '1') {
     logRestartEvent('boot: UI mounted', { fullscreen: bootedFullscreen, isRecompose })
+  }
+
+  // External injection channel (dsh.nvim etc.): expose a per-session local
+  // socket that appends text into the prompt input and submits it. Optional
+  // integration — a bind failure degrades to "no channel" and never fails the
+  // session. Closed on teardown so the socket and discovery record do not leak.
+  const injectChannel = openInjectChannel(
+    agent.session.id,
+    channel.cwd,
+    {
+      append: (text) => injectControllerRef.current?.append(text),
+      submit: () => injectControllerRef.current?.submit(),
+    },
+    (message) => ctx.logger.warn(`dsh-tui: ${message}`),
+  )
+  if (injectChannel) {
+    ctx.effect(() => () => injectChannel.close())
   }
 
   // Check in the background so registry latency never delays the first frame.

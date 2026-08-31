@@ -33,12 +33,21 @@ const GROUPS = {
     ["verify-askpanel-layout", ['node', '--import', 'tsx/esm', 'scripts/verify-askpanel-layout.tsx']],
     ["repro-toolcards", ['node', '--import', 'tsx/esm', 'scripts/repro-toolcards.tsx']],
     ["repro-diff-split", ['node', '--import', 'tsx/esm', 'scripts/repro-diff-split.tsx']],
+// 代码块 tab 缩进背景回归（issue #606）：tab 展开须继承单元格样式，否则
+// 无背景的空格被 diff 跳过，在 tmux/Windows Terminal 深色底下显示为黑块。
+    ["verify-code-block-tab-background", ['node', '--import', 'tsx/esm', 'scripts/verify-code-block-tab-background.tsx']],
 // 思考块流式视图回归：preview 固定三行且点击切全文/再点收回，full
 // 默认值反向但仍不进入 0 行正文；增量 Markdown 与整段渲染的块间距
 // 一致（真实段落空行保留，代码块后不凭空多一行）。
     ["verify-thinking-preview", ['node', '--import', 'tsx/esm', 'scripts/verify-thinking-preview.tsx']],
     ["repro-thinking-stream-fold", ['node', '--import', 'tsx/esm', 'scripts/repro-thinking-stream-fold.tsx']],
     ["verify-streaming-markdown-spacing", ['node', '--import', 'tsx/esm', 'scripts/verify-streaming-markdown-spacing.tsx']],
+// 流式平滑揭示回归（dsh-tui.smoothStreaming）：调度器步进/游标生命周期
+// （追加保游标、替换 snap、追平不再重打）+ MessageList 集成（流式行/
+// 非流式 fresh 行渐进揭示、回放行直出、开关关闭直出）+ 组件契约
+// （thinking ticker 跟随已到达文本而展开体吃切片、工具卡行级揭示、
+// result 落定即全显）。
+    ["verify-smooth-reveal", ['node', '--import', 'tsx/esm', 'scripts/verify-smooth-reveal.tsx']],
 // 滚动/pill/内联模式回归：新消息 pill 计数递减、Ctrl+C 交互、
 // 内联 scrollback 第三方终端适配。曾因 mock channel 缺新字段而
 // 静默冻结（render 期 TypeError 被 ink 吞掉），不在 CI 里烂了
@@ -350,10 +359,21 @@ const GROUPS = {
     ["verify-compact", ['node', '--import', 'tsx/esm', 'scripts/verify-compact.mjs']],
     ["verify-channel-goal-todo", ['node', '--import', 'tsx/esm', 'scripts/verify-channel-goal-todo.mjs']],
     ["verify-whale-toggle", ['node', '--import', 'tsx/esm', 'scripts/verify-whale-toggle.mjs']],
+// 计划退出恢复进入前权限；覆盖延迟切换、会话恢复与未知权限不提权。
+    ["verify-plan-exit-restore", ['node', 'scripts/verify-plan-exit-restore.mjs']],
 // 会话切换/清屏卫生：子代理投影（行 map/任务描述队列/仪表盘快照）随
 // 切换重置、/clear 后在途子代理卡可回现、staged image token 会话作用域
 // （switchModel 不泄漏）、resumeTo 竞争切换守卫、recap 预算从新到旧收容。
     ["verify-session-reset-hygiene", ['node', '--import', 'tsx/esm', 'scripts/verify-session-reset-hygiene.tsx']],
+// Agent View 回归：派生辅助（折叠/摘要/状态映射/标题回退）、无头整屏
+// 组装、按键驱动（派发/预览/帮助/退出）、停止→删除武装的安全语义
+// （Enter 取消、焦点漂移不得改向、窗口过期自动解除）。
+    ["verify-agent-view", ['node', '--import', 'tsx/esm', 'scripts/verify-agent-view.mjs']],
+// 后台任务（ctx.jobs）UI 投影：BackgroundJobStore 单元（注册/转换/消失
+// 合成 killed/输出镜像有界）、channel 集成（建卡、job_output 镜像、落定
+// toast、kill 权限传递、无 jobs 服务降级、/new 重置）、JobCard/JobsPanel
+// 渲染冒烟（三行瀑布、settled 折叠、面板行/提示）。
+    ["verify-jobs-panel", ['node', '--import', 'tsx/esm', 'scripts/verify-jobs-panel.tsx']],
 // /tree 与 /fork 回归：sessionTree 纯模型（条目提取、回退/分叉边界、
 // 家族拼接、扁平化/过滤、整轮丢弃预警）、compat 预算读取器
 // （全量/截断/继承前缀跳过）、SessionTree 屏幕无头组装
