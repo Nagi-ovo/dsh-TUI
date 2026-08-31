@@ -7,7 +7,7 @@ import { readActivityFrames } from '../activityPrefs.js'
 import { envThemeOverride } from '../components/design-system/ThemeProvider.js'
 import { hasPath } from '../dsh-adapter/settingsEditor.js'
 import { planReload, type ReloadKind } from '../reload.js'
-import { AlternateScreen, Box, Text, useInput, ScrollBox, type ScrollBoxHandle, useTheme, useTerminalSize } from '../ui.js'
+import { AlternateScreen, Box, Image, Text, useInput, ScrollBox, type ScrollBoxHandle, useTheme, useTerminalSize } from '../ui.js'
 import * as tuiKit from '../ui.js'
 import { POINTER } from '../cc/figures.js'
 import { isPlainReturnInput, modLabel } from '../utils/modifiers.js'
@@ -146,6 +146,7 @@ function StatusViewText({
  * input, channel, raw-ANSI, or terminal-write parts of the full UI kit. */
 const STATUS_VIEW_UI = Object.freeze({
   Box: StatusViewBox,
+  Image,
   Text: StatusViewText,
   useTerminalSize,
 }) satisfies TuiStatusViewUi
