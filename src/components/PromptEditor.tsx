@@ -60,6 +60,7 @@ export function PromptEditorLayer(): React.ReactNode {
       flexDirection="column"
       flexShrink={0}
       overflow="hidden"
+      backgroundColor="clawd_background"
       opaque
       onClick={(event) => {
         event.stopImmediatePropagation()
