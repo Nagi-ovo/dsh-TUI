@@ -76,6 +76,10 @@ const GROUPS = {
 // 滚动窗口与 shrink 边界。measure-depth 需生产模式（minified #185）。
     ["verify-message-measure-depth", ['node', '--import', 'tsx/esm', 'scripts/verify-message-measure-depth.tsx'], { NODE_ENV: 'production' }],
     ["verify-scroll", ['node', 'scripts/verify-scroll.mjs']],
+// Windows Terminal 全屏拖选+滚轮回归：长 User 气泡的 selection overlay
+// 会污染上一帧；污染帧不得进入 DECSTBM/shiftRows 硬件滚动，否则带背景
+// 的旧像素被物理搬移后偶发重复/错位。A/B 同轨迹断言终态画面一致。
+    ["repro-user-drag-wheel-render", ['node', '--import', 'tsx/esm', 'scripts/repro-user-drag-wheel-render.tsx']],
     ["verify-shrink", ['node', 'scripts/verify-shrink.mjs']],
 // 高于视口的收缩必须记 anchoredPad：终端 scrollback 不随内容收缩，
 // 高度差公式会少算 1 行 → 上移在视口顶被钳制 → 整帧相对写入链低一行
@@ -412,6 +416,11 @@ const GROUPS = {
 // Box），嵌套在更窄容器里（transcript 旁 2 列 timeline rail 排水沟）
 // 不再按整终端宽度换行到第二行——「Conversation compacted」窄窗劈裂。
     ["verify-divider-width", ['node', '--import', 'tsx/esm', 'scripts/verify-divider-width.tsx']],
+// Divider 测量循环回归（React #185 启动即崩）：横线宽度会反馈进 Box 的
+// 实际授予宽度，内容定宽上下文（或同模式测量的兄弟元素）里测量值漂移
+// 不收敛，每 commit 一次 setState 撞 reconciler 50 层嵌套更新上限直接
+// 崩进程。钉住测量协商逐代有界 + resize 后重新开协商。
+    ["verify-divider-stability", ['node', '--import', 'tsx/esm', 'scripts/verify-divider-stability.tsx']],
 // thinking spinner 残影回归（issue #72）：text-default emoji（✳）
 // 量宽 2 实画 1 致 spinner 行每帧错位，thinking 残影堆积不消失。
     ["repro-thinking", ['node', '--import', 'tsx/esm', 'scripts/repro-thinking.tsx']],
