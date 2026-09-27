@@ -8,7 +8,7 @@
  */
 process.env.FORCE_COLOR = '3'
 
-const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { AskUserQuestionPanel }, { settle, settled, sleep, viewportLines, findText }] = await Promise.all([
+const [{ PassThrough, Writable }, React, { Terminal: XTerm }, { render }, { AskUserQuestionPanel }, { settle, settled, sleep, viewportLines }] = await Promise.all([
   import('node:stream'),
   import('react'),
   import('@xterm/headless'),
@@ -101,12 +101,9 @@ function fgAt(row: number, col: number): string {
 check('选项列表里直接可见「自定义回答」输入行', await settled(() => screen().includes('自定义回答')))
 check('提示行说明可直接输入', await settled(() => screen().includes('输入文字附带回答')))
 
-// 1b. IME 锚点格必须是「正文色空格」：终端在物理光标那一格上绘制输入法
-//     拼音并继承该格的前景色——锚点若压在 dim 占位符上，拼音会跟着变暗
-//     （与 2b 同源；2026-09-22 主人真机截图：按空格后打字，拼音是选项蓝）。
 // 1b. IME 锚点格必须是「与正文同款样式」的一格空白：终端在物理光标那一格
 //     上绘制输入法拼音并继承该格样式——锚点压在 dim 占位符上，拼音会跟着
-//     变暗；压在蓝色光标条上，拼音会跟着变蓝（2026-09-22 主人真机截图）。
+//     变暗；压在蓝色光标条上，拼音会跟着变蓝（2026-09-22 真机截图）。
 //     插入点 = 输入行 `：` 之后的第一格（同一行内定位，不靠提示行里的同名字）。
 {
   const question = findGlyph('你')        // 题干：不带 color 的正文样式基准
